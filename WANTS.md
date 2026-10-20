@@ -17,3 +17,8 @@ reads this to decide what the engine grows next.
 - game: (any)
 - what the game would do with it: two players on two machines.
 - smallest version that would unblock it: rooms namespaced by game slug on oskiewar's relay, with the same input-rollback the fight uses.
+
+## AC sign-in, handles and high scores
+- game: (any)
+- what the game would do with it: players sign in with their aesthetic.computer handle; scores and saves are kept under it.
+- smallest version that would unblock it: `api.player()` → `{ handle }` plus `api.score(name, value)` and `api.scores(name)`, backed by AC. Planned upstream.

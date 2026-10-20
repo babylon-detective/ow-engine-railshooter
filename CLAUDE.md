@@ -62,7 +62,18 @@ npm run unpack path/to/x.oskie  # → games/<slug>/  (add -- --force to overwrit
 ```
 
 A `.oskie` file is the game, the way a `.c3p` is a Construct project. It can
-be sent, archived, or opened by anyone with this repo.
+be sent, archived, or opened by anyone with this repo. When a version is worth
+playing, send the `.oskie` to jeffrey (the engine's author) so he can try it.
+
+## Hosting
+
+```bash
+npm run build <slug>                  # → dist/<slug>/, a static site
+vercel deploy dist/<slug> --prod      # or any static host
+```
+
+Deploy only when the person asks to, and under their own Vercel account.
+`dist/` is gitignored, so build it fresh for every deploy.
 
 ## Rules
 

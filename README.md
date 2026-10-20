@@ -8,6 +8,7 @@ git clone <this repo> && cd oskiewar-engine
 npm start                     # → http://localhost:7777
 npm run new my-game           # games/my-game/ → http://localhost:7777/play/my-game
 npm run pack my-game          # → dist/my-game.oskie (the whole game, one file)
+npm run build my-game         # → dist/my-game/ (static site: vercel deploy dist/my-game --prod)
 ```
 
 - `GAME-SPEC.md` — the game format and the engine API.

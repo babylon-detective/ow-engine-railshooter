@@ -178,6 +178,10 @@ export function signal(api, e) { console.log(e.name, e.player, e.value); }
   and each game at `/play/<slug>`. Saving any file in the game reloads its page.
 - **A `.oskie` anywhere.** On a localhost page, the engine shell also takes
   `?game=<url of a .oskie>`.
+- **Your own site.** `npm run build <slug>` writes `dist/<slug>/`: the engine,
+  the game as `game.oskie`, and an `index.html` that loads it. It's static
+  files and nothing else, so any host works. For Vercel it's
+  `vercel deploy dist/<slug> --prod`.
 - **Not on oskiewar.com yet.** A game is code, and code on oskiewar.com could
   act as the signed-in player. Hosting `.oskie` games there needs a sandboxed
   origin first.
@@ -188,6 +192,7 @@ export function signal(api, e) { console.log(e.name, e.player, e.value); }
 ## Asking the engine for more
 
 v1 is deliberately small. When a game needs something the API above can't do
-(changing the fight, sprites, alpha, 3D shapes, saving scores, netplay), write
+(changing the fight, sprites, alpha, 3D shapes, AC sign-in and handles for
+high scores, netplay), write
 it in `WANTS.md` with what the game would do with it. That file is how the
 engine learns what to grow next.

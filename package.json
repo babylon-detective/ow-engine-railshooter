@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "description": "Make your own game on the oskiewar engine. Web output; no dependencies.",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.mjs",
     "new": "node bin/oskie.mjs new",
     "pack": "node bin/oskie.mjs pack",
     "unpack": "node bin/oskie.mjs unpack",
-    "check": "node bin/oskie.mjs check"
+    "check": "node bin/oskie.mjs check",
+    "build": "node bin/oskie.mjs build"
   }
 }
