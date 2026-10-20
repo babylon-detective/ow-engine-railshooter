@@ -1,0 +1,141 @@
+{
+  "format": "computer.aesthetic.oskiewar-release",
+  "version": 1,
+  "build": 449,
+  "release": "904153fa664b613cb13cd56e90c40372e30c6ef9552a108d3fae77f4a63c3166",
+  "game": "09399e8a2d6e1db1aeca550918745d1f113b1dc19a7119c6d68bd18066ed6829",
+  "files": {
+    "/account-deletion.mjs": {
+      "sha256": "dcba438bdba45f1903173986122cb3fa1a5420d0cad4d132bbebc6b96540aaa6",
+      "bytes": 6715
+    },
+    "/account.mjs": {
+      "sha256": "02e426ffcb0c56fcc2c1963aa388a69033abb331c13dc1916b8cda99e5fed034",
+      "bytes": 21890
+    },
+    "/aesthetic.computer/cursors/active.svg": {
+      "sha256": "b2b7a94b8466b0b91d458206d3adeda6911ca93b691b228d12e0b6e2105dc643",
+      "bytes": 406
+    },
+    "/aesthetic.computer/cursors/precise.svg": {
+      "sha256": "45dea6560ad5e318d85defcef0c8d8dac311f5d8024f36e545c5d9e98245b67d",
+      "bytes": 553
+    },
+    "/aesthetic.computer/dep/@akamfoad/qr/qr.mjs": {
+      "sha256": "12f4feda647887bd217528535123b9ad40e4dcf78da0166249a8bef14f06d4df",
+      "bytes": 28199
+    },
+    "/aesthetic.computer/dep/auth0-spa-js.production.js": {
+      "sha256": "d931bfe4b9f39f318e84dc593cdc78fe4f5e463fe4c1fd2a6b72ed583ebaf872",
+      "bytes": 40532
+    },
+    "/aesthetic.computer/dep/geckos.io-client.3.0.2.min.js": {
+      "sha256": "1d655b80d8a75fc801be5d305a3337d7a55214c649ca926020534fc7d69467bd",
+      "bytes": 9520
+    },
+    "/aesthetic.computer/lib/auth0-otp.mjs": {
+      "sha256": "2faf71825cf15765268108fcc1a94a5db95aa768c94c56831c8b8c5e5b897ff2",
+      "bytes": 17917
+    },
+    "/aesthetic.computer/lib/oskiewar-analytics.mjs": {
+      "sha256": "c568fbcf444882abd1ca56304f3de7f4b8b95928ca6d0d3599152212dbb94054",
+      "bytes": 2398
+    },
+    "/aesthetic.computer/lib/product-analytics.mjs": {
+      "sha256": "ce10f99991fbb955850b65e5233be74534f7309d6f0655d0a8d183b7473c72d7",
+      "bytes": 10264
+    },
+    "/ComicRelief-Regular.ttf": {
+      "sha256": "9ef4958ab06385d91f635f83a15569786b243f9d010cfb3f9a5cdda593c7bc22",
+      "bytes": 80324
+    },
+    "/ComicRelief-Regular.woff2": {
+      "sha256": "d4e6eab59a234d21a5183f61dd6c439950976cb50a05bb9f7574c5e4085bddcf",
+      "bytes": 36968
+    },
+    "/frame-driver.mjs": {
+      "sha256": "13168f6e45ea32a605bf05a7b65233d64faef83e0b2400439bd344e1c1e93ecd",
+      "bytes": 11215
+    },
+    "/frame-vm.mjs": {
+      "sha256": "11baa6c21ceb7941daefa986c2dfa03d1c2588b948b4516a0cff3a9cfeedbe8c",
+      "bytes": 46224
+    },
+    "/mac-test.html": {
+      "sha256": "6a256f395e6b7c8568c6400cefb653f064753c1f656c9cc4f7e8d2994a2bff06",
+      "bytes": 153550
+    },
+    "/mime-replay.mjs": {
+      "sha256": "9e4d9c71b6da359279106d70b6ba749b51f8aa85e203dae2b83dc61b2fdf86ad",
+      "bytes": 6310
+    },
+    "/native-account.mjs": {
+      "sha256": "a41ab097e88d4c3586fe457fcaa491914f9a86cd2f2b800f0d0307f65f8b236c",
+      "bytes": 1310
+    },
+    "/oskiewar-console.mjs": {
+      "sha256": "8afafe18e26e12917cbca73d1c621403122b42e9f08193c82b5af89623d4446a",
+      "bytes": 24130
+    },
+    "/oskiewar-fighter.mjs": {
+      "sha256": "c6d81f15f00c939ade2d20ddbb270815f29ae3e94a4cc9e81fe29d0fcee3dd5f",
+      "bytes": 14668
+    },
+    "/oskiewar-game.mjs": {
+      "sha256": "c248a0e8993e1adaf4da16c8b4399c9b90d4c1e3eaba6d03c75be51e0fb2fa81",
+      "bytes": 4303
+    },
+    "/oskiewar-map.mjs": {
+      "sha256": "f33ab6b381b3702180719bcb7b86b204a6f9e821d70963b182aae6c68e361307",
+      "bytes": 2693
+    },
+    "/oskiewar-midi.mjs": {
+      "sha256": "d104a05db0980f68ca1bc550ede6511132c421c7504eb6339a5b425a7dc0a206",
+      "bytes": 12018
+    },
+    "/oskiewar-sfx.mjs": {
+      "sha256": "b623d7de62b4fd82aaec3f39fa6c7aa59ad4f4fd2325154043dfb794044fcdd2",
+      "bytes": 27210
+    },
+    "/oskiewar-voice.mjs": {
+      "sha256": "191853bf1e56733a9e78edcfa04f03bb9e52a484f4991935ca86ded7897e99a3",
+      "bytes": 29267
+    },
+    "/oskiewar-wizard.mjs": {
+      "sha256": "527a8bbcf3b39637c3ca8604f6e9781c8dd824e158eb7d15deed9115e3a4c756",
+      "bytes": 24394
+    },
+    "/oskiewar-workshop.mjs": {
+      "sha256": "ca3c03527c6d7bec326e6d29e03acfc44a210ea9fbb07b360f0d4d79be08ee29",
+      "bytes": 6376
+    },
+    "/oskiewar.js": {
+      "sha256": "09399e8a2d6e1db1aeca550918745d1f113b1dc19a7119c6d68bd18066ed6829",
+      "bytes": 1872278
+    },
+    "/release-client.mjs": {
+      "sha256": "208229156d3ac0be8df53b93f4d8e0b5e4077e017ce8d93130bd0b032cf8807d",
+      "bytes": 931
+    },
+    "/render-quality.mjs": {
+      "sha256": "071662c3e72b71d15ff05d3cc40a62c6b36da2dfb215fbba67afd8fc234bef41",
+      "bytes": 1094
+    },
+    "/round-room.mjs": {
+      "sha256": "114767b02cb1323e95ef1378773afc963236924bfc79e347012d67b3ece4c0d5",
+      "bytes": 25131
+    },
+    "/scene3d-webgl.mjs": {
+      "sha256": "830a2809deb8a7071b7c0f16b09b4b5ccf4cf11ee8bffb7f729a1b2a4dab2390",
+      "bytes": 19068
+    },
+    "/scene3d.mjs": {
+      "sha256": "ba2af13399262e9cd9a24672a45c6fcab6267103263b665ce8a36a1ef0b9ddcc",
+      "bytes": 2166
+    },
+    "/sfx/dojo-punch.wav": {
+      "sha256": "aabad184e105390bd7cbd1c36257a464eb44533e3a3c03f11584ce39e382a11b",
+      "bytes": 45808
+    }
+  }
+}

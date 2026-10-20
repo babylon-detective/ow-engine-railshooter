@@ -1,0 +1,9 @@
+{
+  "slug": "my-game",
+  "title": "my game",
+  "author": "",
+  "description": "A new game on the oskiewar engine.",
+  "mode": "own",
+  "entry": "game.mjs",
+  "engine": 0
+}

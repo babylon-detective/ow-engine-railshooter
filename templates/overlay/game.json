@@ -1,0 +1,9 @@
+{
+  "slug": "my-game",
+  "title": "my game",
+  "author": "",
+  "description": "oskiewar, with my rules on top.",
+  "mode": "overlay",
+  "entry": "game.mjs",
+  "engine": 0
+}

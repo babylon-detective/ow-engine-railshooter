@@ -1,0 +1,9 @@
+{
+  "slug": "hello",
+  "title": "hello",
+  "author": "oskiewar",
+  "description": "A new game on the oskiewar engine.",
+  "mode": "own",
+  "entry": "game.mjs",
+  "engine": 449
+}

@@ -1,0 +1,9 @@
+{
+  "slug": "jump-count",
+  "title": "jump-count",
+  "author": "oskiewar",
+  "description": "oskiewar, with my rules on top.",
+  "mode": "overlay",
+  "entry": "game.mjs",
+  "engine": 449
+}
