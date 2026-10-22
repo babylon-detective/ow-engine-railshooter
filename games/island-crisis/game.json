@@ -1,0 +1,9 @@
+{
+  "slug": "island-crisis",
+  "title": "island-crisis",
+  "author": "Artur Matveichenkov",
+  "description": "A new game on the oskiewar engine.",
+  "mode": "own",
+  "entry": "game.mjs",
+  "engine": 449
+}
