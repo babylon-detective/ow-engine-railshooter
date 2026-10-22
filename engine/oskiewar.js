@@ -313,7 +313,7 @@ function syncNativeAccount() {
 }
 
 // Monotonic count of committed revisions to this piece (next revision included).
-const buildVersion = 449;
+const buildVersion = 452;
 
 // ── Downstream games ─────────────────────────────────────────────────────
 // A .oskie game (xbox/GAME-SPEC.md) arrives from the web shell as
@@ -326,8 +326,128 @@ const downstream = typeof downstreamGame === "object" && downstreamGame ? downst
 const ownsFrame = () => downstream?.manifest.mode === "own";
 const gameTitle = () => downstream?.manifest.title || "oskiewar";
 let downstreamApi = null, downstreamFault = "";
+// The engine's 3D, lent to a game (GAME-SPEC.md → "The world"): the one
+// camera every world face is seen through, WORLD faces, the objects the
+// game draws (object-lisp, xbox/OBJECT-DIALECT.md — the game's own
+// `objects/*.lisp` join them at boot) and the flat figure on sixteen joints.
+// Scratch lives here so a game's paint allocates nothing per call.
+const downstreamCamera = { position: { x: 0, y: 1500, z: -2200 }, target: { x: 0, y: 1500, z: 0 },
+  width: 2200, perspective: 1, fov: 55, roll: 0 };
+const downstreamPlace = new Float64Array(12);
+const downstreamInputs = {};
+const downstreamJoints = new Float64Array(48);
+const downstreamPalette = new Array(30).fill(0);
+const downstreamLooks = new Map();   // palette key → the LOOK this page sent for it
+const downstreamFaceA = { x: 0, y: 0, z: 0 }, downstreamFaceB = { x: 0, y: 0, z: 0 };
+const downstreamFaceC = { x: 0, y: 0, z: 0 }, downstreamFaceColor = [255, 255, 255];
+// The joints a FIGURE op carries, in order (figureJoints in object-lisp.mjs).
+const downstreamJointNames = ["head", "look", "neck", "pelvis", "shoulder-l", "shoulder-r",
+  "elbow-l", "elbow-r", "hand-l", "hand-r", "hip-l", "hip-r", "knee-l", "knee-r", "foot-l", "foot-r"];
+// A fighter's default colours, the ten LOOK slots: skin hair shirt pants
+// skirt shoe accent iris lip blush.
+const downstreamDefaultPalette = [242, 204, 169, 92, 64, 52, 242, 204, 169, 242, 204, 169,
+  188, 164, 226, 40, 36, 48, 242, 204, 169, 96, 140, 196, 236, 140, 150, 246, 172, 156];
+// {x, y, z} or [x, y, z] into `out`; anything else leaves `fallback`.
+function downstreamVec3(value, out, fallback) {
+  if (value && typeof value === "object" && (Array.isArray(value) || ArrayBuffer.isView(value))) {
+    out.x = +value[0] || 0; out.y = +value[1] || 0; out.z = +value[2] || 0;
+  } else if (value && typeof value === "object") {
+    out.x = +value.x || 0; out.y = +value.y || 0; out.z = +value.z || 0;
+  } else if (fallback !== out) { out.x = fallback.x; out.y = fallback.y; out.z = fallback.z; }
+  return out;
+}
+// Where an object stands: twelve numbers as the rig frames know them (the
+// origin, then where object x, y and z point), or { x, y, z, heading |
+// forward, up, scale }. Object x is forward and y is up; z (the owner's
+// right) is forward × up, as drawRevolver and drawMonowheelObject take it.
+// The world's y grows downward, so "up" with nothing said is -y.
+const downstreamAxis = { x: 0, y: 0, z: 0 };
+function downstreamPlaceOf(spec) {
+  const m = downstreamPlace;
+  if (spec && typeof spec === "object" && (Array.isArray(spec) || ArrayBuffer.isView(spec)) && spec.length >= 12) {
+    for (let i = 0; i < 12; i++) m[i] = +spec[i] || 0;
+    return m;
+  }
+  const s = spec && typeof spec === "object" ? spec : {};
+  m[0] = +s.x || 0; m[1] = +s.y || 0; m[2] = +s.z || 0;
+  let fx, fy, fz, ux, uy, uz;
+  if (s.forward) { const f = downstreamVec3(s.forward, downstreamAxis, downstreamAxis); fx = f.x; fy = f.y; fz = f.z; }
+  else { const h = +s.heading || 0; fx = DM.cos(h); fy = 0; fz = DM.sin(h); }
+  if (s.up) { const u = downstreamVec3(s.up, downstreamAxis, downstreamAxis); ux = u.x; uy = u.y; uz = u.z; }
+  else { ux = 0; uy = -1; uz = 0; }
+  const k = s.scale === undefined ? 1 : +s.scale || 0;
+  m[3] = fx * k; m[4] = fy * k; m[5] = fz * k;
+  m[6] = ux * k; m[7] = uy * k; m[8] = uz * k;
+  m[9] = (fy * uz - fz * uy) * k; m[10] = (fz * ux - fx * uz) * k; m[11] = (fx * uy - fy * ux) * k;
+  return m;
+}
+// An object by the name the game draws it under: the engine's (monowheel,
+// revolver, figure, character) or one the game brought. An unknown name or
+// a source that fails to compile throws, and the red bar names it.
+function downstreamObject(name) {
+  if (!gameObjects.sources().includes(name)) throw new Error("no object " + name + " (have " + gameObjects.sources().join(", ") + ")");
+  return gameObjects[name];
+}
+// The game's own objects: every `objects/<name>.lisp` in the .oskie is
+// defined before boot, and compiled then, so a broken one stops the game
+// with its file named rather than failing on its first draw.
+function defineDownstreamObjects() {
+  const files = downstream.files || {};
+  for (const path in files) {
+    const named = /^objects\/([a-z][a-z0-9-]*)\.lisp$/.exec(path);
+    if (!named || typeof files[path]?.text !== "string") continue;
+    try { gameObjects.define(named[1], files[path].text); void gameObjects[named[1]]; }
+    catch (error) {
+      downstreamFault = path + ": " + String(error?.message || error);
+      console.error("[" + downstream.manifest.slug + "]", error);
+      return;
+    }
+  }
+}
+// A figure for the api: a sketch (the flat figure, or the made character
+// with a chosen face) hung on the joints the game hands over, in a palette
+// the game names, drawn as the fighters are (paintFigureSketch).
+function drawDownstreamFigure(joints, options) {
+  const J = downstreamJoints;
+  J.fill(NaN);
+  if (joints && typeof joints === "object" && (Array.isArray(joints) || ArrayBuffer.isView(joints))) {
+    for (let k = 0; k < 48 && k < joints.length; k++) J[k] = +joints[k];
+  } else if (joints && typeof joints === "object") {
+    for (let n = 0; n < 16; n++) {
+      const p = joints[downstreamJointNames[n]];
+      if (!p) continue;
+      const list = Array.isArray(p) || ArrayBuffer.isView(p);
+      J[n * 3] = +(list ? p[0] : p.x); J[n * 3 + 1] = +(list ? p[1] : p.y); J[n * 3 + 2] = +(list ? p[2] : p.z);
+    }
+  }
+  let posed = false;
+  for (let k = 0; k < 48; k += 3) if (J[k] === J[k]) { posed = true; break; }
+  if (!posed) return false;
+  const o = options && typeof options === "object" ? options : {};
+  const palette = downstreamPalette, given = o.palette;
+  if (given && typeof given === "object" && given.length === 10 && typeof given[0] === "object") {
+    for (let s = 0; s < 10; s++) for (let c = 0; c < 3; c++) palette[s * 3 + c] = +given[s][c] || 0;
+  } else if (given && typeof given === "object" && given.length === 30) {
+    for (let k = 0; k < 30; k++) palette[k] = +given[k] || 0;
+  } else for (let k = 0; k < 30; k++) palette[k] = downstreamDefaultPalette[k];
+  const figure = o.eyes !== undefined || o.mouth !== undefined
+    ? gameObjects.characterFigure(o.eyes || "dots", o.mouth || "smile") : gameObjects.figure;
+  const i = figureInputs;
+  i.blink = o.blink ? 1 : 0; i.hurt = o.hurt ? 1 : 0; i.headless = o.headless ? 1 : 0;
+  i.skirt = o.skirt ? 1 : 0; i.glasses = o.glasses ? 1 : 0; i.crowd = o.crowd ? 1 : 0;
+  figure(i, figurePlace, figureVariantOut);
+  const pin = typeof o.pin === "number" ? o.pin : NaN;
+  if (downstreamLooks.size > 256) downstreamLooks.clear();
+  paintFigureSketch(figure.sketches[figureVariant], palette, J, pin, downstreamLooks, palette.join());
+  return true;
+}
 function makeDownstreamApi() {
   const view = () => ({ width: viewWidth(), height: viewHeight });
+  const cameraReading = () => ({
+    position: { x: cameraDoll.position.x, y: cameraDoll.position.y, z: cameraDoll.position.z },
+    target: { x: cameraDoll.target.x, y: cameraDoll.target.y, z: cameraDoll.target.z },
+    fov: cameraDoll.fov, roll: cameraDoll.roll, perspective: cameraDoll.perspective, width: cameraDoll.width,
+  });
   return Object.freeze({
     manifest: downstream.manifest, engine: buildVersion,
     asset: path => downstream.asset(path),
@@ -337,6 +457,15 @@ function makeDownstreamApi() {
       return { connected: raw.connected === true, down: (raw.down || []).slice(),
         leftX: raw.leftX || 0, leftY: raw.leftY || 0, rightX: raw.rightX || 0, rightY: raw.rightY || 0 };
     },
+    // The mouse or finger on the stage, and the keys held right now by
+    // their codes (KeyQ, Space, …), beside the pad the keyboard already is.
+    pointer: () => {
+      const p = globalThis.__oskiewarTouch?.pointer;
+      return p ? { x: p.x || 0, y: p.y || 0, active: p.active === true, down: p.down === true }
+        : { x: 0, y: 0, active: false, down: false };
+    },
+    keys: () => { const held = globalThis.__oskiewarKeys; return held ? Array.from(held) : []; },
+    cursor: (name = "default") => { globalThis.__oskiewarCursor = String(name); },
     // wipe paints the backdrop, under any scene; shapes ride the HUD pass,
     // in front of the fighters, the way the engine's own HUD does.
     wipe: (r = 0, g = 0, b = 0) => box(0, 0, view().width, view().height, r, g, b),
@@ -353,18 +482,72 @@ function makeDownstreamApi() {
     textWidth: (text, size) => handleWidth(String(text), size),
     drum: (name, amount = 1, pan = 0) => playDrum(name, amount, pan),
     tone: (frequency, seconds = .12) => { if (typeof synth === "function") synth(frequency, seconds); },
+    // The world. In own mode the game owns the camera; an overlay looks
+    // through the fight's. World faces are flat colour at a depth the
+    // camera gives them, so they sort against each other and the fighters
+    // on their own; `light` is the sun and `shade` the engine's flat rule,
+    // for a game that wants its faces lit the way the engine lights its own.
+    camera: (spec) => {
+      if (spec && typeof spec === "object" && ownsFrame()) {
+        const c = downstreamCamera;
+        downstreamVec3(spec.position ?? spec.from, c.position, c.position);
+        downstreamVec3(spec.target ?? spec.at, c.target, c.target);
+        if (spec.fov !== undefined) c.fov = clamp(+spec.fov || 55, 5, 170);
+        if (spec.roll !== undefined) c.roll = +spec.roll || 0;
+        if (spec.perspective !== undefined) c.perspective = clamp(+spec.perspective, 0, 1);
+        c.width = spec.width !== undefined ? Math.max(1, +spec.width || 1)
+          : Math.max(1, DM.hypot(c.target.x - c.position.x, c.target.y - c.position.y, c.target.z - c.position.z));
+        cameraDoll.snap(c);
+      }
+      return cameraReading();
+    },
+    face: (ax, ay, az, bx, by, bz, cx, cy, cz, r = 255, g = 255, b = 255) => {
+      if (programBuffered) { emitWorldFace(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b); return; }
+      const A = downstreamFaceA, B = downstreamFaceB, C = downstreamFaceC, color = downstreamFaceColor;
+      A.x = ax; A.y = ay; A.z = az; B.x = bx; B.y = by; B.z = bz; C.x = cx; C.y = cy; C.z = cz;
+      color[0] = r; color[1] = g; color[2] = b;
+      worldTriangle(A, B, C, color);
+    },
+    light: () => ({ x: globalLight.x, y: globalLight.y, z: globalLight.z }),
+    shade: (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      const nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+      const ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+      const nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      const magnitude = DM.hypot(nx, ny, nz) || 1;
+      const toward = (nx * -globalLight.x + ny * -globalLight.y + nz * -globalLight.z) / magnitude;
+      return .72 + Math.max(0, toward) * .28;
+    },
+    project: (x, y, z = 0) => {
+      const p = projectPoint(x, y, z);
+      return { x: p.x, y: p.y, behind: !!p.behind };
+    },
+    // Objects: the engine's, and the game's own (objects/*.lisp, or
+    // defineObject at run time). Inputs are the dialect's names (time,
+    // distance, speed, lean, heading, pitch, turbo, hit, land, cylinder,
+    // spent, cock, …); what a game leaves out reads the dialect's default,
+    // except `time`, which reads the engine clock.
+    object: (name, inputs, place) => {
+      const object = downstreamObject(String(name));
+      const i = downstreamInputs;
+      for (const key in i) delete i[key];
+      i.time = (Number(runtime().monotonicUs) || 0) / 1000000;
+      if (inputs && typeof inputs === "object") Object.assign(i, inputs);
+      object(i, downstreamPlaceOf(place), objectOut(object));
+    },
+    defineObject: (name, source) => {
+      if (!/^[a-z][a-z0-9-]*$/.test(String(name))) throw new Error("an object's name is a-z, 0-9 and -, starting with a letter");
+      gameObjects.define(String(name), String(source));
+      void gameObjects[String(name)];
+    },
+    objects: () => gameObjects.sources(),
+    figure: (joints, options) => drawDownstreamFigure(joints, options),
     // Overlay only: the fight as it stands, copied out so nothing written
-    // here reaches the simulation, and where a world point lands on screen.
+    // here reaches the simulation.
     players: () => ownsFrame() ? [] : activePlayers().map((p, index) => ({
       index, name: p.name || "", x: p.x, y: p.y, z: p.z || 0, vx: p.vx, vy: p.vy,
       facing: p.facing, grounded: !!p.grounded, alive: !!p.alive,
       score: p.score || 0, roundWins: p.roundWins || 0,
     })),
-    project: (x, y, z = 0) => {
-      if (ownsFrame()) return null;
-      const p = projectPoint(x, y, z);
-      return { x: p.x, y: p.y, behind: !!p.behind };
-    },
     screen: () => ownsFrame() ? "game" : globalThis.__oskiewarTouch?.screen || "",
   });
 }
@@ -3847,18 +4030,26 @@ function drawFlatFigure(player, world, now) {
   // Arenas stand a fighter at one depth, the floor's near edge (see the
   // renderables loop); the pool lets each shape find its own.
   const pin = poolOnly() ? NaN : triangleDepth;
+  paintFigureSketch(sketch, palette, J, pin, flatLooks, player);
+  return true;
+}
+// One figure sketch on one set of joints, in one palette: drawn here on an
+// immediate host, or sent as a LOOK (once per palette per owner — `looks`
+// remembers the handle under `owner`) and a FIGURE op on a buffered one.
+// The fighters and a downstream game's figures share this path.
+function paintFigureSketch(sketch, palette, J, pin, looks, owner) {
   if (!programBuffered) {
     figurePinned = pin === pin;
     gameObjects.drawFigureShapes(sketch, palette, J, pin, prepareObjectView(), figureEdgeOut);
     drawFigureEdged();
-    return true;
+    return;
   }
   emitFrameCamera();
   const handle = sketchHandleFor(sketch), key = palette.join();
-  let look = flatLooks.get(player);
+  let look = looks.get(owner);
   if (!look || look.key !== key) {
     look = { key, handle: nextLookHandle++ };
-    flatLooks.set(player, look);
+    looks.set(owner, look);
     programRoom(32);
     const at = programLength;
     program[at] = FRAME_LOOK; program[at + 1] = look.handle;
@@ -3871,7 +4062,6 @@ function drawFlatFigure(player, world, now) {
   program[at + 3] = pin;
   for (let k = 0; k < 48; k++) program[at + 4 + k] = J[k];
   programLength = at + 52;
-  return true;
 }
 // A body in pieces, drawn the way a whole one is. Each bone is its own flat
 // figure — shapes hung on that bone's two joints only — so a burst body, a
@@ -32523,6 +32713,8 @@ function boot() {
   }
   if (downstream) {
     downstreamApi = makeDownstreamApi();
+    defineDownstreamObjects();
+    if (ownsFrame()) cameraDoll.snap(downstreamCamera);
     callDownstream("boot");
   }
 }

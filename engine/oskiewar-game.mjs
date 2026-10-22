@@ -73,5 +73,7 @@ export async function loadGame(source) {
     return (urls[path] = toBlob(text, 'text/javascript'));
   };
   const mod = await import(moduleUrl(game.manifest.entry));
-  return { manifest: game.manifest, mod, asset: path => urls[path] || null };
+  // `files` rides along for the engine: a game's objects/*.lisp are defined
+  // from it at boot (GAME-SPEC.md → Objects).
+  return { manifest: game.manifest, mod, asset: path => urls[path] || null, files: game.files };
 }

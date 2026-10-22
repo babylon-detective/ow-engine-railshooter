@@ -1,8 +1,8 @@
 {
-  "build": 449,
-  "release": "904153fa664b613cb13cd56e90c40372e30c6ef9552a108d3fae77f4a63c3166",
-  "game": "09399e8a2d6e1db1aeca550918745d1f113b1dc19a7119c6d68bd18066ed6829",
-  "commit": "32ea4913",
-  "exported": "2026-10-20",
+  "build": 452,
+  "release": "e823c6cd8d10900fcec1c6a38eaac651e6315ac6787550986661c22be6e366a0",
+  "game": "0dbf1d8fc76f1c85bcc0fb4c29e84e43e42d4f1aa72f7ec2e38dadc07a62bb51",
+  "commit": "3b83b39c",
+  "exported": "2026-10-22",
   "files": 33
 }

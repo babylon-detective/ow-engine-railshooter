@@ -3,6 +3,18 @@
 Each entry is one ask. See CLAUDE.md for the format. The engine's author
 reads this to decide what the engine grows next.
 
+## Answered
+
+- **3D shapes, the camera, objects and figures** (island-crisis drew its
+  own software 3D over `api.triangle`) → engine 452: `api.camera`,
+  `api.face`, `api.shade`, `api.light`, `api.project`, `api.object` with
+  the engine's `revolver` and `monowheel` and a game's own `objects/*.lisp`,
+  `api.defineObject`, `api.figure`. See GAME-SPEC.md → The world, and
+  `games/showroom`.
+- **Mouse and keys the pad table doesn't carry** (island-crisis read the DOM
+  itself in `lib/input.mjs`) → engine 452: `api.pointer()`, `api.keys()`,
+  `api.cursor()`.
+
 ## Change the fight from an overlay
 - game: (any overlay)
 - what the game would do with it: new rules — knockback, health, power-ups, win conditions.

@@ -1,0 +1,9 @@
+{
+  "slug": "showroom",
+  "title": "showroom",
+  "author": "@jeffrey",
+  "description": "A hallway on the engine's own 3D: the camera, world faces, oskiewar's revolver, wheel and figure, and a crate of the game's own. Tap to shoot the panels.",
+  "mode": "own",
+  "entry": "game.mjs",
+  "engine": 452
+}

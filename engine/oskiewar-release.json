@@ -1,9 +1,9 @@
 {
   "format": "computer.aesthetic.oskiewar-release",
   "version": 1,
-  "build": 449,
-  "release": "904153fa664b613cb13cd56e90c40372e30c6ef9552a108d3fae77f4a63c3166",
-  "game": "09399e8a2d6e1db1aeca550918745d1f113b1dc19a7119c6d68bd18066ed6829",
+  "build": 452,
+  "release": "e823c6cd8d10900fcec1c6a38eaac651e6315ac6787550986661c22be6e366a0",
+  "game": "0dbf1d8fc76f1c85bcc0fb4c29e84e43e42d4f1aa72f7ec2e38dadc07a62bb51",
   "files": {
     "/account-deletion.mjs": {
       "sha256": "dcba438bdba45f1903173986122cb3fa1a5420d0cad4d132bbebc6b96540aaa6",
@@ -62,8 +62,8 @@
       "bytes": 46224
     },
     "/mac-test.html": {
-      "sha256": "6a256f395e6b7c8568c6400cefb653f064753c1f656c9cc4f7e8d2994a2bff06",
-      "bytes": 153550
+      "sha256": "d4ae2285dcdc0e556335da4acd096c6c92fde08ec6c6f199e57448227b3d0b09",
+      "bytes": 155967
     },
     "/mime-replay.mjs": {
       "sha256": "9e4d9c71b6da359279106d70b6ba749b51f8aa85e203dae2b83dc61b2fdf86ad",
@@ -82,8 +82,8 @@
       "bytes": 14668
     },
     "/oskiewar-game.mjs": {
-      "sha256": "c248a0e8993e1adaf4da16c8b4399c9b90d4c1e3eaba6d03c75be51e0fb2fa81",
-      "bytes": 4303
+      "sha256": "17f49cac568b9ccd52769120b4a7bca8e48b3e487c46b669882ac1f9c730ddbc",
+      "bytes": 4448
     },
     "/oskiewar-map.mjs": {
       "sha256": "f33ab6b381b3702180719bcb7b86b204a6f9e821d70963b182aae6c68e361307",
@@ -110,8 +110,8 @@
       "bytes": 6376
     },
     "/oskiewar.js": {
-      "sha256": "09399e8a2d6e1db1aeca550918745d1f113b1dc19a7119c6d68bd18066ed6829",
-      "bytes": 1872278
+      "sha256": "0dbf1d8fc76f1c85bcc0fb4c29e84e43e42d4f1aa72f7ec2e38dadc07a62bb51",
+      "bytes": 1883548
     },
     "/release-client.mjs": {
       "sha256": "208229156d3ac0be8df53b93f4d8e0b5e4077e017ce8d93130bd0b032cf8807d",
