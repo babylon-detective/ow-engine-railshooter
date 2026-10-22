@@ -3,28 +3,34 @@
 // game's own object, objects/crate.lisp, stays in the folder as the copyable
 // example; the halls themselves are kept clear.
 //
-// The loop: you glide toward a closed door. A big switch panel sits on the
-// right wall. Turn (one direction), shoot it once, the door opens and the
-// next hall begins. Reach the door closed and you die; the run restarts
-// at once. World units are the engine's: y grows DOWN, the floor is at
-// 1800 and up is -y. Halls run along +z.
+// The loop, one button: you glide toward a closed door with a switch on it.
+// Shoot the switch once and the door lifts and the next hall begins; reach
+// the door closed and you die, and the run restarts at once. Each hall the
+// switch sits somewhere else on the door and a little smaller. World units
+// are the engine's: y grows DOWN, the floor is at 1800 and up is -y. Halls
+// run along +z.
 
-const FLOOR = 1800, HALF = 300, HEIGHT = 500, HALL = 2200;
-const EYE = FLOOR - 170, PACE = 2.2, TURN = .96;   // the turn: a look down the right wall, not a full quarter
-const S = { t: 0, s: 0, turned: false, yaw: 0, flash: 0, red: 0, cool: 0, halls: [], run: 0, best: 0, dead: 0,
-  prev: new Set(), pointerWas: false, keyWas: false, reticle: { x: 0, y: 0 }, shots: 0 };
+const FLOOR = 1800, HALF = 300, HEIGHT = 500, HALL = 1300;
+const EYE = FLOOR - 170, PACE = 2.2;
+const S = { t: 0, s: 0, flash: 0, red: 0, cool: 0, halls: [], run: 0, best: 0, dead: 0,
+  prev: new Set(), pointerWas: false, shootWas: false, reticle: { x: 0, y: 0 }, shots: 0 };
 
-// A hall: from z0 to z0 + HALL, its door at the far end, one switch panel
-// on the right wall partway along. The first switch sits early, so the
-// first hall teaches the turn before the door arrives.
+// A hall: from z0 to z0 + HALL, its door at the far end, one small switch
+// somewhere on the door. Small on purpose: from the far end of the hall it
+// is a few pixels, so the shot only becomes makeable as you close in, and
+// the doors come one after another — an aim-practice map. The first is a
+// touch bigger and in the middle; after that it wanders and shrinks.
 function hall(index, z0) {
-  const z = z0 + HALL * (index === 0 ? .42 : .55 + ((index * 7) % 3) * .08);
-  return { index, z0, z1: z0 + HALL, open: 0, sw: { z, y: FLOOR - 250, w: 340, h: 340, hit: 0, down: false } };
+  const size = index === 0 ? 120 : Math.max(48, 96 - index * 4);
+  const k = index * 7919 % 97 / 97, j = index * 104729 % 89 / 89;
+  const x = index === 0 ? 0 : (k - .5) * (HALF * 2 - size - 60);
+  const y = index === 0 ? FLOOR - HEIGHT / 2 : FLOOR - HEIGHT + size / 2 + 30 + j * (HEIGHT - size - 60);
+  return { index, z0, z1: z0 + HALL, open: 0, sw: { x, y, z: z0 + HALL, w: size, h: size, hit: 0, down: false } };
 }
 
 function restart(api) {
   S.halls = [hall(0, 0), hall(1, HALL)];
-  Object.assign(S, { s: 0, turned: false, yaw: 0, run: 0, dead: 0, shots: 0 });
+  Object.assign(S, { s: 0, run: 0, dead: 0, shots: 0 });
   S.reticle = { x: api.view().width / 2, y: api.view().height / 2 };
 }
 
@@ -41,13 +47,6 @@ export function sim(api) {
     S.reticle.x = Math.max(0, Math.min(view.width, S.reticle.x + pad.rightX * 22));
     S.reticle.y = Math.max(0, Math.min(view.height, S.reticle.y - pad.rightY * 22));
   }
-  // One direction: a press turns to look down the right wall, where the
-  // switch is; the next turns back. From the front the switch is a sliver.
-  const turnKey = keys.has("KeyE") || keys.has("KeyQ");
-  if ((turnKey && !S.keyWas) || pressNow(down, "RightTrigger") || pressNow(down, "LeftTrigger") ||
-      pressNow(down, "RightShoulder") || pressNow(down, "LeftShoulder")) { S.turned = !S.turned; api.drum("whoosh", .5, .5); }
-  S.keyWas = turnKey;
-  S.yaw += ((S.turned ? TURN : 0) - S.yaw) * .18;
   // One shot a press, with a short cool-down so one tap is one shot.
   if (S.cool > 0) S.cool--;
   const shootKey = keys.has("Space") || keys.has("KeyJ") || keys.has("KeyK");
@@ -68,16 +67,15 @@ export function sim(api) {
   if (S.red > 0) S.red--;
   for (const h of S.halls) if (h.sw.hit > 0) h.sw.hit--;
   S.prev = down;
-  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
-  api.camera({ position: [0, EYE, S.s], target: [fx * 100, EYE, S.s + fz * 100], fov: 96 });   // fov is across the stage
+  api.camera({ position: [0, EYE, S.s], target: [0, EYE, S.s + 100], fov: 96 });   // fov is across the stage
 }
 
 const current = () => S.halls[0];
 
-// The switch's four corners on the right wall.
+// The switch's four corners on the door, a hair in front of it.
 function corners(sw) {
-  const hw = sw.w / 2, hh = sw.h / 2, x = HALF - 2;
-  return [[x, sw.y - hh, sw.z - hw], [x, sw.y - hh, sw.z + hw], [x, sw.y + hh, sw.z + hw], [x, sw.y + hh, sw.z - hw]];
+  const hw = sw.w / 2, hh = sw.h / 2, z = sw.z - 1;
+  return [[sw.x - hw, sw.y - hh, z], [sw.x + hw, sw.y - hh, z], [sw.x + hw, sw.y + hh, z], [sw.x - hw, sw.y + hh, z]];
 }
 
 // Aim by the picture: the reticle inside the switch's projected quad is a
@@ -97,7 +95,6 @@ function fire(api) {
   }
   if (!inside) { api.tone(220, .08); return; }
   sw.down = true; sw.hit = 14; h.open = .01;
-  S.turned = false;   // BAM — and the lens snaps back to the door
   api.drum("glass-shard", 1.4, .4); api.drum("gong", .6, 0);
 }
 
@@ -118,37 +115,38 @@ function drawHall(api, h) {
     quad(api, [-HALF, FLOOR - HEIGHT, zb], [HALF, FLOOR - HEIGHT, zb], [HALF, FLOOR - HEIGHT, za], [-HALF, FLOOR - HEIGHT, za], ceiling);
     quad(api, [-HALF, FLOOR, zb], [-HALF, FLOOR - HEIGHT, zb], [-HALF, FLOOR - HEIGHT, za], [-HALF, FLOOR, za], wall);
   }
-  // The right wall is cut around the switch: a world face carries one
-  // depth, so a panel laid over a wall would fight it. Nothing overlaps.
-  const sw = h.sw, hw = sw.w / 2, hh = sw.h / 2;
-  const rightWall = (za, zb, ya, yb) => { if (zb > za && yb > ya) quad(api, [HALF, yb, za], [HALF, ya, za], [HALF, ya, zb], [HALF, yb, zb], wall); };
   for (let z = z0; z < z1; z += 340) {
     const za = z, zb = Math.min(z1, z + 340);
-    rightWall(za, Math.min(zb, sw.z - hw), FLOOR - HEIGHT, FLOOR);
-    rightWall(Math.max(za, sw.z + hw), zb, FLOOR - HEIGHT, FLOOR);
-    const ma = Math.max(za, sw.z - hw), mb = Math.min(zb, sw.z + hw);
-    rightWall(ma, mb, FLOOR - HEIGHT, sw.y - hh);
-    rightWall(ma, mb, sw.y + hh, FLOOR);
+    quad(api, [HALF, FLOOR, za], [HALF, FLOOR - HEIGHT, za], [HALF, FLOOR - HEIGHT, zb], [HALF, FLOOR, zb], wall);
   }
-  // The door: a dark slab that lifts into the ceiling once the switch is hit.
-  const lift = h.open * HEIGHT, door = h.open ? [70, 120, 80] : [60, 52, 48];
-  if (lift < HEIGHT) quad(api, [-HALF, FLOOR - lift, z1], [HALF, FLOOR - lift, z1], [HALF, FLOOR - HEIGHT, z1], [-HALF, FLOOR - HEIGHT, z1], door);
-  // The switch: a big bright panel with a red disc, red all over the moment
-  // it is hit, dull once down. The panel is a ring of pieces around the
-  // disc, so the disc never sits on top of a face (one depth a face).
-  const col = sw.hit > 0 ? [255, 40, 40] : sw.down ? [90, 110, 90] : [236, 240, 250];
-  const disc = sw.hit > 0 ? [255, 40, 40] : sw.down ? [70, 80, 70] : [220, 60, 80];
-  const x = HALF, cz = sw.z, cy = sw.y, r = sw.w * .28, n = 16, rim = [], edge = [];
-  for (let i = 0; i < n; i++) {
-    const a = i / n * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
-    rim.push([x, cy + sa * r, cz + ca * r]);
-    const reach = hh / Math.max(Math.abs(ca), Math.abs(sa));
-    edge.push([x, cy + sa * reach, cz + ca * reach]);
-  }
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    api.face(x, cy, cz, ...rim[j], ...rim[i], ...disc);
-    quad(api, rim[i], rim[j], edge[j], edge[i], col);
+  // The door: a dark slab that lifts into the ceiling once the switch is
+  // hit, with the switch set into it. A world face carries one depth, so
+  // the door is cut around the switch and the switch is a ring around its
+  // disc: nothing overlaps.
+  const sw = h.sw, hw = sw.w / 2, hh = sw.h / 2, lift = h.open * HEIGHT, z = z1;
+  const door = h.open ? [70, 120, 80] : [60, 52, 48];
+  const top = FLOOR - HEIGHT, bottom = FLOOR - lift;
+  const slab = (xa, xb, ya, yb) => { if (xb > xa && yb > ya) quad(api, [xa, yb, z], [xb, yb, z], [xb, ya, z], [xa, ya, z], door); };
+  if (lift < HEIGHT) {
+    const dy = lift, sy0 = sw.y - hh - dy, sy1 = sw.y + hh - dy;   // the switch rides up with the door
+    slab(-HALF, sw.x - hw, top, bottom);
+    slab(sw.x + hw, HALF, top, bottom);
+    slab(sw.x - hw, sw.x + hw, top, Math.min(bottom, sy0));
+    slab(sw.x - hw, sw.x + hw, Math.max(top, sy1), bottom);
+    const col = sw.hit > 0 ? [255, 40, 40] : sw.down ? [90, 110, 90] : [236, 240, 250];
+    const disc = sw.hit > 0 ? [255, 40, 40] : sw.down ? [70, 80, 70] : [220, 60, 80];
+    const cx = sw.x, cy = sw.y - dy, zf = z - 1, r = sw.w * .28, n = 16, rim = [], edge = [];
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+      rim.push([cx + ca * r, cy + sa * r, zf]);
+      const reach = hh / Math.max(Math.abs(ca), Math.abs(sa));
+      edge.push([cx + ca * reach, cy + sa * reach, zf]);
+    }
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      api.face(cx, cy, zf, ...rim[i], ...rim[j], ...disc);
+      quad(api, rim[j], rim[i], edge[i], edge[j], col);
+    }
   }
 }
 
@@ -162,11 +160,11 @@ export function paint(api) {
   const r = S.reticle, k = S.flash > 0 ? 34 : 26;
   api.line(r.x - k, r.y, r.x - 8, r.y, 4, 255, 255, 255); api.line(r.x + 8, r.y, r.x + k, r.y, 4, 255, 255, 255);
   api.line(r.x, r.y - k, r.x, r.y - 8, 4, 255, 255, 255); api.line(r.x, r.y + 8, r.x, r.y + k, 4, 255, 255, 255);
-  api.write("hall " + (S.run + 1) + (S.best > S.run ? "   best " + (S.best + 1) : ""), 40, 36, 34, 255, 236, 120);
-  const hint = current().index === 0 && !current().sw.down ? (S.turned ? "shoot the switch" : "e or trigger: turn to the right wall") : "";
+  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : ""), 40, 36, 34, 255, 236, 120);
+  const hint = current().index === 0 && !current().sw.down ? "shoot the switch on the door" : "";
   if (hint) api.write(hint, width / 2 - api.textWidth(hint, 40) / 2, height - 110, 40, 255, 255, 255);
   if (S.dead) {
-    const line = "the door was closed";
+    const line = S.run ? S.run + (S.run === 1 ? " door" : " doors") + ", then a closed one" : "the door was closed";
     api.write(line, width / 2 - api.textWidth(line, 90) / 2, height * .38, 90, 255, 236, 120);
   }
 }
