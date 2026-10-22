@@ -43,6 +43,10 @@ if (command === 'new') {
   writeFileSync(join(out, 'index.html'), shell.replace('<head>',
     '<head><script>globalThis.__oskiewarGameUrl="/game.oskie";</script>'));
   writeFileSync(join(out, 'vercel.json'), JSON.stringify({
+    framework: null,
+    installCommand: '',
+    buildCommand: '',
+    outputDirectory: '.',
     headers: [{ source: '/(.*)', headers: [{ key: 'Cache-Control', value: 'no-cache' }] }],
   }, null, 2) + '\n');
   console.log(`dist/${target}/ → a static site; deploy it with: vercel deploy dist/${target} --prod`);
