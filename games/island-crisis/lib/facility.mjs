@@ -221,8 +221,10 @@ export function step(S, api) {
     if (S.z > HALL.END + 100) { start(S, 'hangar'); return 'hangar'; }
   } else if (S.stage === 'hangar') {
     sc.enteredT++;
-    const stopAt = HANGAR.EXIT - 520;
-    const target = sc.exit < 1 && S.z > stopAt - 400 ? 0 : 3.4;
+    // Stop far enough back that a front wave (slabs sit 1150–1400 ahead)
+    // still hangs inside the room, not past the shut door.
+    const stopAt = HANGAR.EXIT - 1700;
+    const target = sc.exit < 1 ? (S.z > stopAt - 400 ? 0 : 3.4) : 6;
     S.speed += (target - S.speed) * .04;
     S.z = sc.exit < 1 ? Math.min(stopAt, S.z + S.speed) : S.z + S.speed;
 
@@ -246,6 +248,7 @@ export function step(S, api) {
     }
     sc.waveT++;
     if (sc.wave >= WAVES.length) sc.exit = Math.min(1, sc.exit + 1 / 120);
+    containHangar(S);
 
     const live = S.enemies.filter(e => e.hp > 0 && !e.dying);
     if (live.length && !live.some(e => Combat.quadrantOf(e.f, e.s) === S.camDir) && sc.waveT > 40) {
@@ -260,12 +263,31 @@ export function step(S, api) {
       S.nudge = { text: 'targets ' + (q === 2 ? 'behind you' : 'on the ' + QNAME[q]), ...turnTo(S.camDir, q), urgent: true };
     } else if (sc.wave >= WAVES.length && S.camDir !== 0) {
       S.nudge = { text: 'the way out is ahead', ...turnTo(S.camDir, 0) };
+    } else if (sc.wave >= WAVES.length) {
+      S.nudge = { text: 'doors open. out to the island', keys: [], dir: null };
     }
 
     if (S.z > HANGAR.EXIT + 260) return 'island';
   }
   S.O = [0, 0, S.z];
   return null;
+}
+
+// Enemies ride along in runner-relative space, so as the runner nears the
+// exit anything hovering ahead would drift through the shut door, where it
+// can't be seen or shot but can still shoot back. Keep them all in the room.
+function containHangar(S) {
+  if (S.script.exit >= 1) return;
+  const ahead = HANGAR.EXIT - 320 - S.z, back = HANGAR.Z0 + 320 - S.z, side = HANGAR.W - 360;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  for (const e of S.enemies) {
+    if (e.type === 'turret') continue;
+    e.f = clamp(e.f, back, ahead);
+    e.s = clamp(e.s, -side, side);
+    if (e.tf !== undefined) e.tf = clamp(e.tf, back, ahead);
+    if (e.ts !== undefined) e.ts = clamp(e.ts, -side, side);
+  }
+  for (const b of S.ebullets) if (b.f > ahead + 200) b.life = 0;
 }
 
 // Player shots against the room: switches first, then shut doors, walls,

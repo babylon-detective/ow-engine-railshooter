@@ -85,7 +85,9 @@ export function drawNudge(api, S) {
   const n = S.nudge;
   if (!n) return;
   const { w, h } = S.cam, t = S.t;
-  const pad = api.pad(0).connected;
+  // Seat 0 is "connected" for the keyboard too; only name pad buttons when a
+  // real gamepad is plugged in.
+  const pad = [...(globalThis.navigator?.getGamepads?.() || [])].some(Boolean);
   const keys = (n.keys || []).map(k => pad ? ({ e: 'rt', q: 'lt', m: 'view' }[k] || k) : k);
   const px = Math.max(3, Math.min(4.5, w / 420)), cap = px * 15;
   const tw = bigWidth(n.text, px);

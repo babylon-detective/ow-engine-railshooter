@@ -13,7 +13,12 @@
    point the way. A few drones teach tap fire.
 2. **The hangar.** Wide room, five scripted waves of *slabs*, armoured
    plates the size of a screen panel, from the front, right, left, behind,
-   then front and back together. The exit opens when the last wave is clear.
+   then front and back together. The runner halts 1700 short of the exit so
+   a front wave still hangs inside the room, and every enemy is kept between
+   the back wall, the side walls and the shut door (enemies ride in
+   runner-relative space, so without that they drifted past the door where
+   they couldn't be seen or shot). The exit opens when the last wave is
+   clear, the runner speeds through, and the island begins.
 3. **The island.** The open rail network across five biomes (jungle,
    desert, urban, cave, mountain top). M lifts the camera into the map to
    choose the next pathway at junctions.

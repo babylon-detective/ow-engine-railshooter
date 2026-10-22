@@ -48,7 +48,8 @@ function toTitle() {
 }
 
 function startIsland() {
-  Object.assign(S, { stage: 'island', level: null, edge: 0, dir: 1, s: 0, speed: 6, route: [], stageT: 0, biome: -1 });
+  Object.assign(S, { stage: 'island', level: null, edge: 0, dir: 1, s: 0, speed: 6, route: [], stageT: 0, biome: -1,
+    spawnT: 240, turretT: 360, bossT: 2700, offT: 0, nudge: null });
   const r = Rail.sample(0, 1, 0);
   S.O = r.p;
   S.heading = r.heading;
