@@ -1,5 +1,7 @@
 // showroom — one hallway at a time, drawn in the engine's own 3D. See
-// NOTES.md and GAME-SPEC.md ("The world", "Objects", "Figures").
+// NOTES.md and GAME-SPEC.md ("The world", "Objects", "Figures"). The
+// game's own object, objects/crate.lisp, stays in the folder as the copyable
+// example; the halls themselves are kept clear.
 //
 // The loop: you glide toward a closed door. A big switch panel sits on the
 // right wall. Turn (one direction), shoot it once, the door opens and the
@@ -167,21 +169,9 @@ export function paint(api) {
   const { width, height } = api.view();
   api.wipe(26, 22, 34);
   for (const h of S.halls) drawHall(api, h);
-  // Set dressing from the engine: a fighter waving in the first hall, a
-  // revolver turning on a plinth in every other one, the game's own crate,
-  // and the wheel rolling along beside you.
-  for (const h of S.halls) {
-    if (h.index === 0) api.figure(fighter(-150, h.z0 + 520, S.t), { glasses: true });
-    else if (h.index % 2 === 1) {
-      const z = h.z0 + 400;
-      quad(api, [-200, FLOOR, z - 40], [-120, FLOOR, z - 40], [-120, FLOOR, z + 40], [-200, FLOOR, z + 40], [90, 80, 100]);
-      api.object("revolver", { spent: S.shots % 7, cylinder: (S.shots % 6) * Math.PI / 3, cock: 1 },
-        { x: -160, y: FLOOR - 60 + Math.sin(S.t * .05) * 4, z, heading: S.t * .02, scale: 1.6 });
-    } else api.figure(fighter(-150, h.z0 + 600, S.t), { eyes: "wide", mouth: "smile",
-      palette: [[236, 196, 160], [30, 24, 40], [60, 120, 220], [220, 60, 90], [90, 60, 160], [40, 40, 60], [240, 220, 80], [40, 40, 60], [230, 120, 130], [240, 160, 150]] });
-    api.object("crate", null, { x: -190, y: FLOOR, z: h.z0 + 1100, heading: .3 + h.index });
-  }
-  api.object("monowheel", { distance: S.s, speed: PACE * 60, turbo: S.flash > 0 ? 1 : 0 }, { x: 180, y: FLOOR - 24, z: S.s + 760, heading: Math.PI / 2 });
+  // One figure, waving in the first hall; the floor is otherwise clear.
+  const first = S.halls.find((h) => h.index === 0);
+  if (first) api.figure(fighter(-150, first.z0 + 520, S.t), { glasses: true });
   // Flat, in front: the flash, the reticle, the words.
   if (S.flash > 0) api.box(0, 0, width, height, 255, 250, 230);
   if (S.red > 0) api.box(0, 0, width, height, 200, 24, 30);

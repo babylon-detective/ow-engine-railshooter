@@ -16,11 +16,11 @@ switch flashes red, the lens snaps back to the door.
   seen and shot.
 - `api.face` + `api.shade`: the floor, walls and ceiling, lit by the
   engine's own flat rule.
-- `api.object("revolver")` turning on a plinth, `api.object("monowheel")`
-  rolling beside you with `distance` fed from the rail, and the game's own
-  `objects/crate.lisp`.
-- `api.figure` on sixteen posed joints: a fighter standing in the first
-  hall, waving; a made-character figure in later ones.
+- `objects/crate.lisp`: a game's own object in the dialect, kept in the
+  folder to copy from (`api.object("crate", null, { x, y, z })` draws it;
+  the halls are kept clear of props — @jeffrey, 2026-10-22).
+- `api.figure` on sixteen posed joints: one fighter standing in the first
+  hall, waving.
 - `api.pointer()` aims, `api.cursor("none")` hides the system cursor, a
   press (mouse, finger, Space, J or X) is one shot: screen flash, a loud
   drum, the switch flashes red and the door lifts.
