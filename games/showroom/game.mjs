@@ -152,26 +152,10 @@ function drawHall(api, h) {
   }
 }
 
-// A standing fighter, the pose the spec describes, waving one arm.
-function fighter(x, z, t) {
-  const J = {}, at = (name, dx, dy, dz) => { J[name] = [x + dx, FLOOR - dy, z + dz]; };
-  const bob = Math.sin(t * .08) * 2, swing = Math.sin(t * .18) * .5;
-  at("head", 0, 196 + bob, 0); at("look", 0, 196 + bob, -22); at("neck", 0, 170 + bob, 0); at("pelvis", 0, 100, 0);
-  at("shoulder-l", 20, 168 + bob, 0); at("shoulder-r", -20, 168 + bob, 0);
-  at("elbow-l", 24, 134, 0); at("hand-l", 26, 102, 0);
-  at("elbow-r", -34, 190 + bob, 0); at("hand-r", -34 - Math.sin(swing) * 26, 216 + bob + Math.cos(swing) * 10, 0);
-  at("hip-l", 11, 95, 0); at("hip-r", -11, 95, 0); at("knee-l", 12, 48, 0); at("knee-r", -12, 48, 0);
-  at("foot-l", 12, 0, 0); at("foot-r", -12, 0, 0);
-  return J;
-}
-
 export function paint(api) {
   const { width, height } = api.view();
   api.wipe(26, 22, 34);
   for (const h of S.halls) drawHall(api, h);
-  // One figure, waving in the first hall; the floor is otherwise clear.
-  const first = S.halls.find((h) => h.index === 0);
-  if (first) api.figure(fighter(-150, first.z0 + 520, S.t), { glasses: true });
   // Flat, in front: the flash, the reticle, the words.
   if (S.flash > 0) api.box(0, 0, width, height, 255, 250, 230);
   if (S.red > 0) api.box(0, 0, width, height, 200, 24, 30);

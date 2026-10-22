@@ -19,8 +19,6 @@ switch flashes red, the lens snaps back to the door.
 - `objects/crate.lisp`: a game's own object in the dialect, kept in the
   folder to copy from (`api.object("crate", null, { x, y, z })` draws it;
   the halls are kept clear of props — @jeffrey, 2026-10-22).
-- `api.figure` on sixteen posed joints: one fighter standing in the first
-  hall, waving.
 - `api.pointer()` aims, `api.cursor("none")` hides the system cursor, a
   press (mouse, finger, Space, J or X) is one shot: screen flash, a loud
   drum, the switch flashes red and the door lifts.
