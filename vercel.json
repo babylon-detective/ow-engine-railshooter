@@ -1,0 +1,7 @@
+{
+  "buildCommand": "npm run build island-crisis",
+  "outputDirectory": "dist/island-crisis",
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
