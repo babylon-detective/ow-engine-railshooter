@@ -22,3 +22,13 @@ reads this to decide what the engine grows next.
 - game: (any)
 - what the game would do with it: players sign in with their aesthetic.computer handle; scores and saves are kept under it.
 - smallest version that would unblock it: `api.player()` → `{ handle }` plus `api.score(name, value)` and `api.scores(name)`, backed by AC. Planned upstream.
+
+## A cursor and alpha the engine draws
+- game: island-crisis
+- what the game would do with it: an aim reticle and menu cursor that follow the pointer at page resolution (like oskiewar's own SVG cursor), plus full-screen flashes for shots, hits and damage.
+- smallest version that would unblock it: `api.cursor(svgOrName)` and an alpha on `api.box`. Meanwhile the game adds its own DOM layer (`lib/overlay.mjs`) over the canvases.
+
+## Big text
+- game: island-crisis
+- what the game would do with it: titles, banners and tutorial prompts at large sizes.
+- smallest version that would unblock it: let `api.write` honour `size` in own mode (it's held to the one dojo size). Meanwhile a block font drawn with `api.box` (`lib/bigtext.mjs`).

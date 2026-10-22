@@ -6,6 +6,7 @@ import * as Rail from './rail.mjs';
 import { LIGHT } from './mesh.mjs';
 import { quadrantOf } from './combat.mjs';
 import { clamp, mix3 } from './util.mjs';
+import { bigWidth, bigWrite } from './bigtext.mjs';
 
 const ink = (api, c) => [c[0] | 0, c[1] | 0, c[2] | 0];
 
@@ -51,12 +52,61 @@ function edgeArrow(api, cam, x, y, behind, col) {
   api.triangle(px + dx * 30, py + dy * 30, px + nx * 20, py + ny * 20, px - nx * 20, py - ny * 20, ...col);
 }
 
+// A keycap: the key's letter in big block type on a raised cap.
+function keycap(api, label, x, y, s, lit) {
+  const px = s / 11, w = Math.max(s, bigWidth(label, px) + px * 5);
+  api.box(x + px, y + px * 1.4, w, s, 10, 12, 26);
+  api.box(x, y, w, s, ...(lit ? [255, 236, 120] : [240, 244, 255]));
+  api.box(x, y + s - px * 1.6, w, px * 1.6, ...(lit ? [200, 160, 50] : [160, 170, 196]));
+  bigWrite(api, label, x + (w - bigWidth(label, px)) / 2, y + px * 1.6, px, [20, 22, 36]);
+  return w;
+}
+
+function chevrons(api, w, h, dir, t) {
+  const n = 3, s = 46, gap = 52, phase = (t >> 3) % n;
+  for (let i = 0; i < n; i++) {
+    const col = i === phase ? [255, 236, 120] : [255, 255, 255];
+    if (dir === 'right' || dir === 'back') {
+      const x = w - 70 - (n - 1 - i) * gap;
+      api.triangle(x - s * .5 + 5, h / 2 - s + 6, x + s * .6 + 5, h / 2 + 6, x - s * .5 + 5, h / 2 + s + 6, 10, 12, 26);
+      api.triangle(x - s * .5, h / 2 - s, x + s * .6, h / 2, x - s * .5, h / 2 + s, ...col);
+    }
+    if (dir === 'left' || dir === 'back') {
+      const x = 70 + (n - 1 - i) * gap;
+      api.triangle(x + s * .5 + 5, h / 2 - s + 6, x - s * .6 + 5, h / 2 + 6, x + s * .5 + 5, h / 2 + s + 6, 10, 12, 26);
+      api.triangle(x + s * .5, h / 2 - s, x - s * .6, h / 2, x + s * .5, h / 2 + s, ...col);
+    }
+  }
+}
+
+// The tutorial's voice: a line of block type, the keys to press as caps,
+// and chevrons on the side of the screen to turn toward.
+export function drawNudge(api, S) {
+  const n = S.nudge;
+  if (!n) return;
+  const { w, h } = S.cam, t = S.t;
+  const pad = api.pad(0).connected;
+  const keys = (n.keys || []).map(k => pad ? ({ e: 'rt', q: 'lt', m: 'view' }[k] || k) : k);
+  const px = Math.max(3, Math.min(4.5, w / 420)), cap = px * 15;
+  const tw = bigWidth(n.text, px);
+  const kw = keys.reduce((sum, k) => sum + Math.max(cap, bigWidth(k, cap / 11) + cap / 11 * 5) + 16, 0);
+  const total = tw + (keys.length ? kw + 24 : 0);
+  const x0 = w / 2 - total / 2, y0 = 150;
+  api.box(x0 - 28, y0 - 22, total + 56, cap + 44, 12, 14, 28);
+  const ink = n.urgent && (t >> 4) % 2 ? [255, 236, 120] : [240, 246, 255];
+  bigWrite(api, n.text, x0, y0 + (cap - px * 7) / 2, px, ink);
+  let x = x0 + tw + 24;
+  keys.forEach((k, i) => { x += keycap(api, k, x, y0, cap, (t >> 4) % keys.length === i) + 16; });
+  if (n.dir) chevrons(api, w, h, n.dir, t);
+}
+
 export function drawHud(api, S, fr) {
   const cam = S.cam, { w, h } = cam, p = S.player;
   const t = S.t;
 
   // Threats off screen, and bullets about to arrive from there.
   for (const e of S.enemies) {
+    if (e.dying) continue;
     const P = Rail.toWorld(fr, e.f, e.s, e.u);
     const [X, Y, Z] = toCam(cam, ...P);
     const behind = Z < 10;
@@ -72,75 +122,61 @@ export function drawHud(api, S, fr) {
     if ((t >> 2) % 2) edgeArrow(api, cam, sp ? sp.x : cam.cx, sp ? sp.y : cam.h, !sp, [255, 230, 60]);
   }
 
-  // The full-screen cross reticle.
-  const lock = !!S.lock, rc = lock ? [255, 70, 70] : [240, 250, 255];
-  const rx = S.reticle.x, ry = S.reticle.y;
-  api.line(0, ry, rx - 46, ry, 2, ...rc);
-  api.line(rx + 46, ry, w, ry, 2, ...rc);
-  api.line(rx, 0, rx, ry - 46, 2, ...rc);
-  api.line(rx, ry + 46, rx, h, 2, ...rc);
-  const r = lock ? 30 + 4 * Math.sin(t * .4) : 36, k = 14;
-  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-    api.line(rx + sx * r, ry + sy * r, rx + sx * (r - k), ry + sy * r, 4, ...rc);
-    api.line(rx + sx * r, ry + sy * r, rx + sx * r, ry + sy * (r - k), 4, ...rc);
-  }
-  api.box(rx - 3, ry - 3, 6, 6, ...rc);
-  if (lock && S.lock.type === 'gunship') {
-    api.write('gunship', rx + 44, ry + 40, 26, 255, 120, 200);
-  }
-
-  // Health, score, biome.
+  // Health, score, where you are. (The reticle is the SVG cursor, overlay.mjs.)
   api.box(30, 28, 424, 34, 20, 22, 30);
   const hpc = p.hp > 50 ? [90, 230, 120] : p.hp > 25 ? [250, 200, 60] : [250, 70, 60];
   api.box(34, 32, 416 * p.hp / 100, 26, ...hpc);
   api.write('hp', 466, 28, 30, 240, 245, 255);
-  api.write('score ' + S.score, 30, 72, 34, 255, 236, 140);
-  if (S.biome >= 0) api.write(BIOMES[S.biome].name + '   ' + S.visited.size + '/5 biomes', 30, 114, 26, 220, 230, 245);
+  bigWrite(api, String(S.score), 30, 76, 5, [255, 236, 140], [16, 18, 30]);
+  const where = S.stage === 'island'
+    ? (S.biome >= 0 ? BIOMES[S.biome].name + '   ' + S.visited.size + '/5 biomes' : '')
+    : S.stage === 'hall' ? 'the hallway' : 'the hangar';
+  api.write(where, 30, 122, 26, 220, 230, 245);
 
-  // Compass: which way the camera faces, and where the enemies are.
-  const ccx = w - 120, ccy = 110, counts = [0, 0, 0, 0];
-  for (const e of S.enemies) counts[quadrantOf(e.f, e.s)]++;
+  // Compass: which way the camera faces, where the enemies are, and which
+  // way a nudge wants you to turn.
+  const ccx = w - 130, ccy = 120, counts = [0, 0, 0, 0];
+  for (const e of S.enemies) if (!e.dying) counts[quadrantOf(e.f, e.s)]++;
   const spots = [[0, -1], [1, 0], [0, 1], [-1, 0]], names = ['front', 'right', 'back', 'left'];
-  api.box(ccx - 18, ccy - 18, 36, 36, 30, 34, 46);
+  const want = S.nudge && S.nudge.dir ? (S.camDir + { right: 1, back: 2, left: 3 }[S.nudge.dir]) % 4 : -1;
+  api.box(ccx - 20, ccy - 20, 40, 40, 30, 34, 46);
   for (let q = 0; q < 4; q++) {
-    const x = ccx + spots[q][0] * 52, y = ccy + spots[q][1] * 52, on = q === S.camDir;
-    api.box(x - 24, y - 24, 48, 48, ...(on ? [255, 230, 120] : [44, 50, 66]));
+    const x = ccx + spots[q][0] * 58, y = ccy + spots[q][1] * 58, on = q === S.camDir;
+    const lit = q === want && (t >> 3) % 2;
+    api.box(x - 27, y - 27, 54, 54, ...(on ? [255, 230, 120] : lit ? [140, 255, 170] : [44, 50, 66]));
     if (counts[q]) {
       const c = (t >> 3) % 2 || on ? [255, 70, 60] : [160, 40, 40];
-      api.box(x - 12, y - 12, 24, 24, ...c);
+      api.box(x - 13, y - 13, 26, 26, ...c);
     }
   }
-  api.write(names[S.camDir], ccx - api.textWidth(names[S.camDir], 22) / 2, ccy + 86, 22, 255, 236, 160);
-  api.write('q', ccx - 112, ccy - 14, 26, 200, 210, 230);
-  api.write('e', ccx + 94, ccy - 14, 26, 200, 210, 230);
+  api.write(names[S.camDir], ccx - api.textWidth(names[S.camDir], 22) / 2, ccy + 94, 22, 255, 236, 160);
+  api.write('q', ccx - 122, ccy - 14, 26, 200, 210, 230);
+  api.write('e', ccx + 104, ccy - 14, 26, 200, 210, 230);
 
   const boss = S.enemies.find(e => e.type === 'gunship');
   if (boss) {
     api.box(w / 2 - 300, h - 70, 600, 22, 30, 20, 34);
-    api.box(w / 2 - 296, h - 66, 592 * boss.hp / boss.max, 14, 236, 80, 170);
+    api.box(w / 2 - 296, h - 66, 592 * Math.max(0, boss.hp) / boss.max, 14, 236, 80, 170);
     api.write('gunship', w / 2 - api.textWidth('gunship', 24) / 2, h - 104, 24, 255, 160, 220);
   }
 
   if (S.toastT > 0) {
-    const s = 56;
-    api.write(S.toast, w / 2 - api.textWidth(S.toast, s) / 2, 150, s, 255, 250, 230);
+    const px = Math.max(3, Math.min(8, (w - 520) / (S.toast.length * 6)));
+    bigWrite(api, S.toast, w / 2 - bigWidth(S.toast, px) / 2, S.nudge ? 300 : 190, px, [255, 250, 230], [16, 18, 30]);
   }
-  const left = Rail.edgeLen(S.edge) - S.s;
-  if (left < 1100 && S.route.length === 0) {
-    const msg = 'junction ahead  -  press m for the map';
-    if ((t >> 4) % 2) api.write(msg, w / 2 - api.textWidth(msg, 30) / 2, h - 150, 30, 255, 255, 255);
-  } else if (S.route.length) {
+  if (S.stage === 'island' && S.route.length) {
     const msg = 'route: ' + S.routeLabel;
     api.write(msg, w / 2 - api.textWidth(msg, 26) / 2, h - 150, 26, 180, 255, 200);
   }
-  if (S.t < 900) {
-    const lines = ['wasd move   mouse or right stick aim   j or rb fire',
-      'space dodge   q e or lt rt turn the camera   m map'];
-    lines.forEach((l, i) => api.write(l, 30, h - 90 + i * 34, 26, 230, 236, 250));
+  drawNudge(api, S);
+  if (S.stageT < 900 && S.stage === 'hall') {
+    const lines = ['wasd move   shift or lb + direction dash   mouse or right stick aim   tap click or j to shoot',
+      'q e or lt rt turn the camera   space dodge   enter or start pause   m map (outdoors)'];
+    lines.forEach((l, i) => api.write(l, 30, h - 84 + i * 34, 26, 230, 236, 250));
   }
 
   if (S.hurtT > 0) {
-    const c = [220, 30, 40], b = 16;
+    const c = [220, 30, 40], b = 22;
     api.box(0, 0, w, b, ...c); api.box(0, h - b, w, b, ...c);
     api.box(0, 0, b, h, ...c); api.box(w - b, 0, b, h, ...c);
   }
@@ -204,7 +240,7 @@ export function drawMap(api, S, fr, e) {
   }
   const { w, h } = cam;
   api.box(0, 0, w, 96, 16, 18, 28);
-  api.write('map  -  choose a path', 30, 20, 50, 255, 236, 140);
+  bigWrite(api, 'map: choose a path', 30, 26, 6, [255, 236, 140]);
   const hint = 'a d or click to pick   j k or click to go   m to close';
   api.write(hint, w - api.textWidth(hint, 26) - 30, 34, 26, 220, 230, 245);
 }

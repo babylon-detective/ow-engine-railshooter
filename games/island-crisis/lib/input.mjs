@@ -1,6 +1,6 @@
-// Input the engine's api.pad doesn't carry yet (see WANTS.md): Q / E / M /
-// Space and the mouse or trackpad. WASD, J, K and pads still come from api.pad.
-const watched = new Set(['KeyQ', 'KeyE', 'KeyM', 'Space']);
+// Input the engine's api.pad doesn't carry: Q / E / M / Space / Enter /
+// Shift and the mouse or trackpad. WASD, J, K and pads still come from api.pad.
+const watched = new Set(['KeyQ', 'KeyE', 'KeyM', 'Space', 'Enter', 'NumpadEnter', 'ShiftLeft', 'ShiftRight']);
 const state = {
   held: new Set(), presses: [],
   mouse: { u: .5, v: .5, moved: false, down: false, clicks: [] },

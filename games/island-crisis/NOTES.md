@@ -1,72 +1,80 @@
-# island-crisis — a 3D rail shooter
+# island crisis — a 3D rail shooter
 
-**Game type:** Own mode (all custom)  
-**Players:** 1 (keyboard + mouse or gamepad)  
-**Setting:** Five-biome island (jungle, desert, urban, cave, mountain top) connected by rail network
+**Mode:** own · **Players:** 1 (keyboard + mouse, or a pad)
+**Like:** Sin & Punishment, Panzer Dragoon Orta
 
-## Gameplay
+## The run
 
-A high-speed rail-shooter in the style of Sin & Punishment and Panzer Dragoon Orta:
+1. **The hallway** (tutorial, slow). Three sealed doors. Each opens from a
+   switch you can only see, and only hit, after turning the camera:
+   right wall (E), left wall (Q), the back of a pillar you already passed
+   (E E). Reach a door still shut and you die ("sealed in"). Nudges at the
+   top of the screen name the keys, the compass slot flashes, and chevrons
+   point the way. A few drones teach tap fire.
+2. **The hangar.** Wide room, five scripted waves of *slabs*, armoured
+   plates the size of a screen panel, from the front, right, left, behind,
+   then front and back together. The exit opens when the last wave is clear.
+3. **The island.** The open rail network across five biomes (jungle,
+   desert, urban, cave, mountain top). M lifts the camera into the map to
+   choose the next pathway at junctions.
 
-- **Rail running:** Follow a carved rail network across a procedural island with five distinct biomes
-- **Full-screen aiming:** Cross-reticle tracks enemies and locks onto the nearest threat
-- **Camera cycling:** Four viewpoints (front/right/back/left) rotated with Q/E or shoulder triggers
-- **Map mode (M):** Zoom out to a top-down view of rail branches and choose your next path
-- **Combat:** Enemies spawn in waves; dodge with Space or dpad; fire with J or right shoulder
-- **Aerial movement:** Jump/dodge sideways and up to avoid incoming fire
-- **Scoring:** Kill count, health pickups from biome transitions, boss encounters
+Each level start is a checkpoint, saved in localStorage
+(`island-crisis:save`). The title's **continue** resumes there, and so
+does **retry** after a death.
+
+## Feel
+
+- Long lens (FOV .62) close behind the runner, so enemies fill the frame.
+- **Tap to fire**: one press, one round. Loud (kick + clap + hat), a white
+  screen flash, reticle recoil.
+- **One shot, one kill.** A hit enemy flashes red and white for a moment,
+  then bursts (red hit-marker on the reticle, bigger flash). The gunship
+  takes 6.
+- Dash: hold Shift (LB) and tap a direction for a short untouchable burst.
+- Enter (Start) pauses the whole loop.
 
 ## Controls
 
-- **WASD / DPad:** Move player left/right/up/down
-- **Mouse / Right Stick:** Aim the reticle
-- **J / Right Shoulder:** Fire
-- **Q / Left Trigger:** Turn camera left
-- **E / Right Trigger:** Turn camera right
-- **Space:** Dodge (jump sideways or up)
-- **M / View Button:** Open/close map
+| keyboard | pad | does |
+|---|---|---|
+| WASD | d-pad / left stick | move on the screen plane |
+| Shift + direction | LB + direction | dash |
+| mouse / trackpad | right stick | aim the reticle |
+| click / J | RB / X | fire (tap) |
+| Space / K | A / B | dodge roll |
+| Q / E | LT / RT | turn the camera 90° |
+| M | View / Y | map (outdoors) |
+| Enter | Start | pause |
 
-## Design
+## Title
 
-- Soft-colored low-poly 3D world, drawn with triangles only
-- Procedurally generated terrain with noise-based biome distribution
-- Rail network carves canyons and paths through the landscape
-- Decorative scenery: trees, buildings, rock formations, stalactites
-- Enemies: drones (projectile), chargers (melee), turrets (fixed), gunships (boss)
-- Particles and sparks for combat feedback
-- Smooth camera control with pitch adjustment to avoid collision
-- Fog and sky gradient blend by biome
+Massive ISLAND / CRISIS block letters over a camera that flies the tracks on
+its own (random branch at every junction, no enemies, no runner), with
+**start** and **continue**.
+
+## Cursor
+
+The reticle is an SVG in a DOM layer over the engine's canvases, like
+oskiewar's own `precise.svg` cursor. The browser draws it at page pixels and
+pointer events move it directly, so it never stretches with the stage. Its
+modes: menu crosshair, "active" (opens over a button), aim, and lock
+(red, closes in over an enemy or a switch you're facing). The same layer
+does the screen flashes with CSS opacity (see WANTS.md).
 
 ## Files
 
-- `game.mjs` — Main loop, state, rail traversal, camera, input
-- `lib/util.mjs` — Math utilities, noise, RNG
-- `lib/mesh.mjs` — Low-poly mesh builders, lighting
-- `lib/render.mjs` — Software 3D: camera, near-plane clipping, painter's sort
-- `lib/world.mjs` — Island generation, rail network, terrain, scenery
-- `lib/rail.mjs` — Rail sampling, local frames, route selection
-- `lib/input.mjs` — Keyboard/mouse input (Q/E/M/Space) the engine's api.pad doesn't carry
-- `lib/combat.mjs` — Enemies, bullets, particles, hit detection
-- `lib/hud.mjs` — Full-screen HUD, map overlay, threat arrows
-- `lib/bigtext.mjs` — Blocky bitmap font for titles
+- `game.mjs`: modes (title / play / over / paused), camera, runner, menus, save
+- `lib/facility.mjs`: hallway and hangar geometry, gates and switches, waves, nudges
+- `lib/title.mjs`: track flyover camera, wordmark, menu layout
+- `lib/overlay.mjs`: SVG cursor and flash layer
+- `lib/combat.mjs`: enemies (drone, charger, turret, slab, gunship), tap fire, hits
+- `lib/hud.mjs`: HUD, nudges and keycaps, compass, map overlay
+- `lib/world.mjs`, `lib/rail.mjs`: island, biomes, rail network, routes
+- `lib/render.mjs`, `lib/mesh.mjs`: software 3D (clip, painter's sort, fog)
+- `lib/input.mjs`: Q/E/M/Space/Enter/Shift and the pointer
+- `lib/bigtext.mjs`: block font (api.write draws one fixed size)
 
-## Performance
+## Next
 
-- Boot: ~225ms
-- Play mode: 2.6ms paint, ~3.5k triangles per frame at 60 FPS
-- Title/map: 7–9ms paint (coarser terrain LOD)
-- No dependencies; runs on Node ≥ 20 and modern browsers
-
-## Deployment
-
-Built with `npm run build island-crisis` → static site in `dist/island-crisis/`.
-
-Deployed to Vercel: `vercel deploy dist/island-crisis --prod`
-
-## Next Steps
-
-- Add more enemy variety and behaviors
-- Turret placement improvements (less overlap)
-- Boss phases and projectile patterns
-- Score multipliers and combo systems
-- Audio cues for actions and threats (HUD update via `api.drum`)
+- More island set pieces (a boss per biome).
+- Teach dash with a scripted volley in the hallway.
