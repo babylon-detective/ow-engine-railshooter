@@ -12,7 +12,16 @@
 import { drawGlyph, glyphWidth } from "./lib/bigtext.mjs";
 
 const FLOOR = 1800, HALF = 300, HEIGHT = 500, HALL = 1500;
-const EYE = FLOOR - 230, PACE = 1.9, AHEAD = 230;
+const EYE = FLOOR - 230, AHEAD = 230;
+// The pace climbs with every door and with a clean run: doors cleared add
+// to it, accuracy over 90% adds more, under 75% eases off. The hero sprints
+// once a door's words are done.
+function pace() {
+  const acc = S.typed + S.wrong ? S.typed / (S.typed + S.wrong) : 1;
+  const skill = acc > .9 ? (acc - .9) * 8 : acc < .75 ? -(.75 - acc) * 4 : 0;
+  return Math.max(1.4, Math.min(6, 1.9 + S.run * .28 + skill));
+}
+const SPRINT = 4.2;
 const S = { t: 0, s: 0, halls: [], run: 0, best: 0, hearts: 3, flash: 0, red: 0, miss: 0, prev: new Set(),
   shot: null, bump: 0, dead: 0, typed: 0, wrong: 0, over: false };
 
@@ -28,7 +37,8 @@ const syllables = (n) => { let w = ""; for (let i = 0; i < n; i++) w += pick(C) 
 function phraseFor(index) {
   const words = index === 0 ? 1 : Math.min(3, 1 + ((index + 1) >> 1));
   const out = [];
-  for (let i = 0; i < words; i++) out.push(index % 2 ? syllables(2) : pick(REAL));
+  // longer syllable words from the sixth door on
+  for (let i = 0; i < words; i++) out.push(index % 2 ? syllables(index >= 6 ? 3 : 2) : pick(REAL));
   return out;
 }
 
@@ -82,7 +92,9 @@ export function sim(api) {
   if (S.over) return;
   if (h.open) h.open = Math.min(1, h.open + .035);
   const stopAt = h.z1 - 150;
-  if (h.open || S.s < stopAt) S.s = Math.min(h.open ? S.s + PACE : stopAt, S.s + PACE);
+  // words done: sprint through the door; otherwise glide at the run's pace
+  const step = h.open ? pace() * SPRINT : pace();
+  if (h.open || S.s < stopAt) S.s = Math.min(h.open ? S.s + step : stopAt, S.s + step);
   else if (!S.bump) {
     // At a shut door with words left: the hero bumps it. Three bumps end the run.
     S.bump = 70; S.hearts--; S.red = 18; api.drum("body-impact", 1.6, 0);
@@ -119,8 +131,9 @@ function progressOf(h) {
 function pose(h) {
   const { k, tg } = progressOf(h);
   const turn = tg ? angleTo(tg) * Math.min(1, k * 1.15) : 0;
-  const stride = Math.sin(S.s / 26) * (S.bump || S.over ? 0 : 1);
-  const bob = Math.abs(Math.cos(S.s / 26)) * 4;
+  const sprinting = h.open > 0 && h.open < 1;
+  const stride = Math.sin(S.s / (sprinting ? 16 : 26)) * (S.bump || S.over ? 0 : 1) * (sprinting ? 1.4 : 1);
+  const bob = Math.abs(Math.cos(S.s / (sprinting ? 16 : 26))) * (sprinting ? 7 : 4);
   const z0 = S.s, y = (up) => FLOOR - up + bob;
   // local: x right, up, z forward; turned about the pelvis, then placed
   const c = Math.cos(turn), s = Math.sin(turn);
@@ -229,7 +242,7 @@ export function paint(api) {
   });
   // hud: doors, hearts, accuracy
   const acc = S.typed + S.wrong ? Math.round(100 * S.typed / (S.typed + S.wrong)) : 100;
-  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : ""), 40, 36, 34, 255, 236, 120);
+  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : "") + "   pace " + pace().toFixed(1), 40, 36, 34, 255, 236, 120);
   api.write("♥".repeat(Math.max(0, S.hearts)), 40, 80, 34, 255, 90, 110);
   api.write(acc + "% letters", width - 40 - api.textWidth(acc + "% letters", 30), 40, 30, 180, 180, 200);
   if (S.over) {

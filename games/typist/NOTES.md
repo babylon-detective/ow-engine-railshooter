@@ -24,6 +24,12 @@ active word:
 Even halls use short real words; odd halls use two-syllable nonsense
 ("boyu popo rebo") — three action events in letters.
 
+## Pace
+
+The glide speeds up with every door cleared, more when accuracy is over
+90%, less under 75%. Once a door's words are done the hero sprints through
+it. From the sixth door the nonsense words grow to three syllables.
+
 ## What it shows
 
 - `api.keys()` as a typing input (letters only, one press each).
