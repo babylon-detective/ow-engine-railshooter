@@ -15,6 +15,8 @@ import * as Hud from './lib/hud.mjs';
 import * as M from './lib/mesh.mjs';
 import { bigWidth, bigWrite } from './lib/bigtext.mjs';
 import { clamp, lerp, angleLerp } from './lib/util.mjs';
+import { motionState, stepMotion } from './lib/motion.mjs';
+import { updateAutoAim } from './lib/targeting.mjs';
 
 // A long lens, close behind: enemies fill the frame instead of dotting it.
 const FOV = .62, MAP_FOV = 1.08, MAP_DIST = 8800;
@@ -62,14 +64,16 @@ function begin(api, stage, carry = {}) {
     camDir: 0, camYaw: 0, camYawTarget: 0, camPitch: .15,
     map: { open: false, t: 0, routes: [], ahead: [], sel: 0, hover: false },
     route: [], routeLabel: '',
-    player: { f: 0, s: 0, u: 140, va: 0, vu: 0, hp: 100, inv: 0, roll: 0, rollCd: 0, fireCd: 0, fireBuf: 0, dash: 0, dashCd: 0 },
+    player: { ...motionState(), hp: 100, inv: 0, fireCd: 0, fireBuf: 0 },
     reticle: { x: width / 2, y: height * .4 }, lock: null, aimT: 3200, muzzle: 0,
+    autoAim: false, autoTarget: null, aimFlick: false,
     enemies: [], ebullets: [], shots: [], parts: [],
     score: carry.score || 0, kills: carry.kills || 0, spawnT: 240, turretT: 360, bossT: 2700,
     biome: -1, visited: new Set(carry.visited || []), toast: STAGE_NAME[stage], toastT: 130,
     shake: 0, hurtT: 0, nudge: null, hint: '', why: '', level: null, offT: 0, paused: false,
   });
   if (stage === 'island') startIsland(); else Facility.start(S, stage);
+  groundPlayer();
   writeSave();
   api.drum('gong', 1.4);
 }
@@ -77,6 +81,8 @@ function begin(api, stage, carry = {}) {
 function enterStage(api, stage) {
   if (stage === 'island') startIsland();
   S.enemies = []; S.ebullets = []; S.shots = [];
+  S.autoTarget = S.lock = null;
+  groundPlayer();
   S.camDir = 0; S.camYawTarget = Math.round(S.camYaw / (Math.PI * 2)) * Math.PI * 2;
   S.toast = STAGE_NAME[stage]; S.toastT = 150;
   S.player.hp = Math.min(100, S.player.hp + 30);
@@ -98,6 +104,17 @@ export function boot(api) {
 const installOverlay = () => Overlay.installOverlay();
 
 const frameNow = () => Rail.frame(S.O, S.heading);
+
+function floorAt(f, s) {
+  const P = Rail.toWorld(frameNow(), f, s, 0);
+  return S.stage === 'island' ? groundAt(P[0], P[2]) : 0;
+}
+
+function groundPlayer() {
+  Object.assign(S.player, motionState());
+  S.player.y = S.player.groundY = floorAt(0, 0);
+  S.player.u = S.player.y - S.O[1];
+}
 
 // ── The map (outdoors only) ──────────────────────────────────────────────
 function openMap(api) {
@@ -217,7 +234,7 @@ function islandNudge() {
 }
 
 // ── The runner ───────────────────────────────────────────────────────────
-function playerSim(api, inp, down, press) {
+function playerSim(api, inp, press) {
   const p = S.player, [LATERAL, CEILING] = BOUNDS[S.stage];
   const held = b => inp.pad.down.has(b);
   let ix = (held('ArrowRight') ? 1 : 0) - (held('ArrowLeft') ? 1 : 0);
@@ -225,58 +242,56 @@ function playerSim(api, inp, down, press) {
   const pad = inp.pad;
   ix ||= pad.leftX;
   iy ||= pad.leftY;
-  const il = Math.hypot(ix, iy);
-  if (il > 1) { ix /= il; iy /= il; }
-
-  // Dash: hold Shift (or LB) and tap a direction, or hold a direction and
-  // tap the modifier. A short, untouchable burst that way.
   const mod = inp.held.has('ShiftLeft') || inp.held.has('ShiftRight') || held('LeftShoulder');
   const modTap = inp.pressed.has('ShiftLeft') || inp.pressed.has('ShiftRight') || press('LeftShoulder');
   const dirTap = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].some(press);
-  if (p.dash > 0) p.dash--;
-  if (p.dashCd > 0) p.dashCd--;
-  if (mod && (dirTap || (modTap && il > .2)) && il > .2 && p.dashCd <= 0) {
-    p.dash = 12; p.dashCd = 22;
-    p.va += ix / il * 32; p.vu += iy / il * 26;
-    S.dashDir = [ix / il, iy / il];
+  const event = stepMotion(p, {
+    x: ix, y: iy, jump: press('B') || inp.pressed.has('Space'),
+    roll: press('A') || press('LeftStick'), boost: mod,
+    dash: mod && (dirTap || modTap),
+  }, { yaw: S.camYaw, lateral: LATERAL, ceiling: CEILING, originY: S.O[1], floorAt });
+  if (event.jump) api.drum(event.jump === 'hover' ? 'bell' : 'whoosh', 1.2);
+  if (event.dash) {
+    const length = Math.hypot(ix, iy) || 1;
+    const dx = ix / length, dy = Math.hypot(ix, iy) > .2 ? iy / length : 1;
+    const forward = p.motion === 'hover' ? 0 : dy;
+    S.dashDir = [-Math.sin(S.camYaw) * dx + Math.cos(S.camYaw) * forward,
+      Math.cos(S.camYaw) * dx + Math.sin(S.camYaw) * forward, p.motion === 'hover' ? dy : 0];
     api.drum('whoosh', 1.7, ix * .7);
     api.drum('hat', 1);
   }
-  if ((press('A') || press('B') || inp.pressed.has('Space')) && p.rollCd <= 0) {
-    p.roll = 24; p.rollCd = 50;
-    const dx = il > .2 ? ix : 0, dy = il > .2 ? iy : 1;
-    p.va += dx * 16; p.vu += dy * 13;
-    api.drum('whoosh', 1.1);
-  }
-  p.va = (p.va + ix * 1.5) * .86;
-  p.vu = (p.vu + iy * 1.5) * .86;
-
-  const th = S.camYaw, right = [-Math.sin(th), Math.cos(th)], look = [Math.cos(th), Math.sin(th)];
-  let a = p.f * right[0] + p.s * right[1], d = p.f * look[0] + p.s * look[1];
-  a = clamp(a + p.va, -LATERAL, LATERAL);
-  d *= .9;
-  p.u = clamp(p.u + p.vu, 0, CEILING);
-  if (p.u === 0 || p.u === CEILING) p.vu = 0;
-  if (Math.abs(a) === LATERAL) p.va = 0;
-  p.f = right[0] * a + look[0] * d;
-  p.s = right[1] * a + look[1] * d;
-  if (p.roll > 0) p.roll--;
-  if (p.rollCd > 0) p.rollCd--;
+  if (event.roll) api.drum('whoosh', 1.1);
   if (p.inv > 0) p.inv--;
+  Facility.playerObstacles(S, api);
+}
 
+function weaponSim(api, inp, press) {
+  const p = S.player, pad = inp.pad;
+  const toggled = press('RightStick') || inp.pressed.has('KeyF');
+  if (toggled) {
+    S.autoAim = !S.autoAim; S.autoTarget = null;
+    S.toast = S.autoAim ? 'auto lock: flick right stick to switch' : 'free aim';
+    S.toastT = 100;
+    api.drum('ding', 1);
+  }
   const { width, height } = api.view();
-  if (inp.mouse.moved) { S.reticle.x = inp.mouse.x; S.reticle.y = inp.mouse.y; }
-  if (Math.hypot(pad.rightX, pad.rightY) > .15) {
-    S.reticle.x = clamp(S.reticle.x + pad.rightX * 26, 0, width);
-    S.reticle.y = clamp(S.reticle.y - pad.rightY * 26, 0, height);
+  const fr = frameNow();
+  if (S.autoAim) {
+    updateAutoAim(S, fr, pad.rightX, pad.rightY, toggled);
     Overlay.padAim(api, S.reticle.x, S.reticle.y);
+  } else {
+    if (inp.mouse.moved) { S.reticle.x = inp.mouse.x; S.reticle.y = inp.mouse.y; }
+    if (Math.hypot(pad.rightX, pad.rightY) > .15) {
+      S.reticle.x = clamp(S.reticle.x + pad.rightX * 26, 0, width);
+      S.reticle.y = clamp(S.reticle.y - pad.rightY * 26, 0, height);
+      Overlay.padAim(api, S.reticle.x, S.reticle.y);
+    }
   }
   S.reticle.x = clamp(S.reticle.x, 0, width);
   S.reticle.y = clamp(S.reticle.y, 0, height);
 
   // Tap to fire: one press, one round. A tap during the short recovery is
   // held for a few frames rather than dropped.
-  const fr = frameNow();
   Combat.updateLock(S, fr);
   if (p.fireCd > 0) p.fireCd--;
   if (press('X') || press('RightShoulder') || inp.mouse.clicks.length) p.fireBuf = 8;
@@ -381,6 +396,7 @@ export function sim(api) {
   if (inp.setupOpen) {
     if (S.mode === 'play') S.paused = true;
     prevDown = down;
+    Overlay.setMode('menu');
     return;
   }
   const press = b => down.has(b) && !prevDown.has(b);
@@ -399,6 +415,7 @@ export function sim(api) {
     return;
   }
   S.t++;
+  let ran = false;
 
   if (S.mode === 'title') {
     Title.stepFlight(S.fly);
@@ -426,8 +443,9 @@ export function sim(api) {
         if (next) enterStage(api, next);
       }
       if (S.mode === 'play') {
-        playerSim(api, inp, down, press);
+        playerSim(api, inp, press);
         Combat.step(S, api, frameNow());
+        ran = true;
         if (S.stage === 'island') islandNudge();
       }
       if (S.toastT > 0) S.toastT--;
@@ -436,8 +454,9 @@ export function sim(api) {
       if (S.shake < .5) S.shake = 0;
     }
   }
-  prevDown = down;
   updateCamera(api);
+  if (ran && S.mode === 'play') weaponSim(api, inp, press);
+  prevDown = down;
   Overlay.setMode(cursorMode());
 }
 
@@ -445,7 +464,7 @@ function cursorMode() {
   if (S.paused) return S.menuHover ? 'active' : 'menu';
   if (S.mode === 'play') {
     if (S.map.open || S.mapE > .3) return S.map.hover ? 'active' : 'menu';
-    return S.lock || S.aimSwitch ? 'lock' : 'aim';
+    return S.autoAim ? 'lock' : 'aim';
   }
   if (S.mode === 'over' && S.overT <= 50) return 'menu';
   return S.menuHover ? 'active' : 'menu';
@@ -463,11 +482,11 @@ function drawPlayer(fr) {
     R.triW(P[0] - r, g + 4, P[2], P[0] + r, g + 4, P[2], P[0], g + 4, P[2] - r, 20, 24, 28, 8);
   }
   if (p.inv > 0 && (S.t >> 2) % 2) return;
-  const run = S.t * .32, air = clamp(p.u / 60, 0, 1);
+  const run = S.t * .32, air = clamp((p.y - p.groundY) / 60, 0, 1);
   const sw = Math.sin(run) * .75 * (1 - air * .75);
   let B = M.yawBasis(P, S.heading);
   if (p.roll > 0) B = M.pitchAround(B, 0, 90, 0, (1 - p.roll / 24) * Math.PI * 2);
-  const base = p.roll > 0 ? -90 : 0;
+  const base = 0;
   const faces = [];
   const jacket = [214, 52, 64], pants = [40, 46, 76], skin = [240, 198, 160], dark = [34, 36, 48];
   for (const side of [-1, 1]) {
@@ -491,15 +510,14 @@ function drawPlayer(fr) {
   M.box(faces, G, 0, -12, 14, 6, 10, 7, dark);
   R.mesh(faces);
   if (p.dash > 0 && S.dashDir) {
-    const th = S.camYaw, rx = -Math.sin(th), rs = Math.cos(th);
     for (let i = 1; i <= 4; i++) {
       const k = i * 26 * p.dash / 12;
-      const Q = Rail.toWorld(fr, p.f - rx * S.dashDir[0] * k, p.s - rs * S.dashDir[0] * k, p.u + 100 - S.dashDir[1] * k);
+      const Q = Rail.toWorld(fr, p.f - S.dashDir[0] * k, p.s - S.dashDir[1] * k, p.u + 100 - S.dashDir[2] * k);
       R.spark(Q[0], Q[1], Q[2], 34 - i * 6, 120, 230, 255, 4);
     }
   }
   const jet = M.at(B, 0, base + 78, -28);
-  if (p.u > 4) R.spark(jet[0], jet[1], jet[2], 14 + Math.random() * 10, 255, 170, 70, 6);
+  if (p.motion === 'hover') R.spark(jet[0], jet[1], jet[2], 18 + Math.sin(S.t * .7) * 5, 90, 220, 255, 6);
   if (S.muzzle > 0) {
     const mz = M.at(G, 0, 0, 84);
     R.spark(mz[0], mz[1], mz[2], 30 + S.muzzle * 12, 255, 255, 220, -10);
@@ -525,13 +543,20 @@ function drawOver(api) {
 export function paint(api) {
   if (!S.cam) return;
   const cam = S.cam, room = S.mode !== 'title' && INDOOR[S.stage];
+  let sceneryNear = 0;
+  if (S.mode !== 'title' && S.mapE < .1) {
+    const p = S.player, point = project(cam, ...Rail.toWorld(frameNow(), p.f, p.s, p.u + 90));
+    // Cut foreground scenery away before the player, not combat objects,
+    // closed doors, switches or hurdles. Title and map keep the whole scene.
+    sceneryNear = Math.max(0, (point?.z || 0) - 180);
+  }
   if (room) {
     api.wipe(...room.bg);
-    R.begin(cam);
+    R.begin(cam, sceneryNear);
     Facility.draw(R, S, cam);
   } else {
     Hud.background(api, cam, S.sky);
-    R.begin(cam);
+    R.begin(cam, sceneryNear);
     drawTerrain(R, cam, S.mapE > .35 ? 2 : 1);
     drawScenery(R, cam);
   }
@@ -550,7 +575,7 @@ export function paint(api) {
     const { items, enabled } = menuItems();
     Title.drawMenu(api, menuLayout(api), S.sel, enabled, S.t, true);
     const { width: w, height: h } = api.view();
-    const foot = 'wasd move   shift + direction dash   mouse aim   tap click or j shoot   q e turn camera   enter pause';
+    const foot = 'space jump / hover / leap   k roll   f auto lock   q e camera   click or j shoot   enter pause';
     api.write(foot, w / 2 - api.textWidth(foot, 24) / 2, h - 46, 24, 240, 246, 255);
     if (S.controllerStatus) api.write(S.controllerStatus, 30, h - 82, 24, 255, 236, 120);
   } else if (S.mode === 'over') drawOver(api);

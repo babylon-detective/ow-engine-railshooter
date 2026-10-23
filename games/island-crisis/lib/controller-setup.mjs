@@ -10,6 +10,9 @@ const steps = [
   ['LeftTrigger', 'Press ZL / camera left'], ['RightTrigger', 'Press ZR / camera right'],
   ['LeftShoulder', 'Press L / dash'], ['View', 'Press Minus / map'],
   ['Menu', 'Press Plus / pause'],
+  ['B', 'Press RIGHT face button / jump (Nintendo A, Xbox B, PlayStation Circle)'],
+  ['LeftStick', 'Click LEFT stick / dodge (L3)'],
+  ['RightStick', 'Click RIGHT stick / auto aim (R3)'],
 ];
 let profile = null, panel, status, prompt, next, skip, calibrate;
 let raw = [], baseline = [], pending = [], step = -1, armed = false, release = null, error = '';
@@ -120,7 +123,9 @@ export function pollControllers() {
       p.axes.map(v => v.toFixed(2)).join(', ')} | buttons: ${
       p.buttons.flatMap((b, i) => buttonDown(b) ? [i] : []).join(', ') || 'none'}`).join('\n\n')
       : 'No controllers exposed. Click the game, then press a button on BOTH Joy-Cons.';
+    const missing = profile && ['B', 'LeftStick', 'RightStick'].filter(action => !profile.some(b => b.action === action));
     status.textContent = [accessError, error, lines, pad.unsupported.length ? 'Unmapped controller detected: use Calibrate / remap.' : '',
+      missing?.length ? 'Recalibrate to add jump, L3 dodge, and R3 auto aim to older saved bindings.' : '',
       profile ? 'Saved custom mapping active.' : 'Automatic mapping: standard pads and upright Chromium Joy-Con pairs.'].filter(Boolean).join('\n\n');
     prompt.textContent = step < 0 ? 'Changes are saved in this browser. Closing cancels unfinished calibration.'
       : release ? 'Release that control to continue.'

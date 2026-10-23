@@ -77,7 +77,10 @@ export function installOverlay() {
   ui.layer.append(ui.flash, ui.cur);
   document.body.append(ui.layer);
   document.documentElement.classList.add('ic-nocursor');
-  const follow = e => { ui.follow = 'mouse'; place(e.clientX, e.clientY); };
+  const follow = e => {
+    if (ui.mode === 'lock') return;
+    ui.follow = 'mouse'; place(e.clientX, e.clientY);
+  };
   addEventListener('pointermove', follow, { passive: true });
   addEventListener('pointerdown', follow, { passive: true });
   document.documentElement.addEventListener('mouseleave', () => ui.cur.classList.add('gone'));
@@ -85,7 +88,7 @@ export function installOverlay() {
 }
 
 // 'menu' (the precise crosshair), 'active' (it opens over something you can
-// press), 'aim' (the play reticle), 'lock' (an enemy under it), 'hidden'.
+// press), 'aim' (free aim), 'lock' (auto aim, even without a target), 'hidden'.
 export function setMode(mode) {
   if (!ui.cur || mode === ui.mode) return;
   ui.mode = mode;

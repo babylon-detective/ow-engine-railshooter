@@ -48,7 +48,7 @@ export class Renderer {
     this.qx = new Float64Array(8); this.qy = new Float64Array(8); this.qz = new Float64Array(8);
   }
 
-  begin(cam) { this.cam = cam; this.n = 0; }
+  begin(cam, sceneryNear = 0) { this.cam = cam; this.sceneryNear = sceneryNear; this.n = 0; }
 
   push(d, x1, y1, x2, y2, x3, y3, r, g, b) {
     const c = this.cam;
@@ -71,8 +71,8 @@ export class Renderer {
   }
 
   // A triangle already in camera space.
-  triC(X1, Y1, Z1, X2, Y2, Z2, X3, Y3, Z3, r, g, b, bias = 0) {
-    const c = this.cam, near = c.near;
+  triC(X1, Y1, Z1, X2, Y2, Z2, X3, Y3, Z3, r, g, b, bias = 0, scenery = false) {
+    const c = this.cam, near = Math.max(c.near, scenery ? this.sceneryNear : 0);
     if (Z1 < near && Z2 < near && Z3 < near) return;
     if (Z1 > c.far && Z2 > c.far && Z3 > c.far) return;
     const d = (Z1 + Z2 + Z3) / 3 + bias;
@@ -102,7 +102,7 @@ export class Renderer {
         cx + f * qx[i + 1] / qz[i + 1], cy - f * qy[i + 1] / qz[i + 1], col[0], col[1], col[2]);
   }
 
-  triW(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b, bias = 0) {
+  triW(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b, bias = 0, scenery = false) {
     const { pos, right: R, up: U, fw: F } = this.cam;
     ax -= pos[0]; ay -= pos[1]; az -= pos[2];
     bx -= pos[0]; by -= pos[1]; bz -= pos[2];
@@ -111,16 +111,16 @@ export class Renderer {
       ax * R[0] + ay * R[1] + az * R[2], ax * U[0] + ay * U[1] + az * U[2], ax * F[0] + ay * F[1] + az * F[2],
       bx * R[0] + by * R[1] + bz * R[2], bx * U[0] + by * U[1] + bz * U[2], bx * F[0] + by * F[1] + bz * F[2],
       cx * R[0] + cy * R[1] + cz * R[2], cx * U[0] + cy * U[1] + cz * U[2], cx * F[0] + cy * F[1] + cz * F[2],
-      r, g, b, bias);
+      r, g, b, bias, scenery);
   }
 
   // Faces from mesh.mjs, with back faces culled.
-  mesh(faces, bias = 0) {
+  mesh(faces, bias = 0, scenery = false) {
     const pos = this.cam.pos;
     for (const fc of faces) {
       const p = fc.p, n = fc.n;
       if ((pos[0] - p[0]) * n[0] + (pos[1] - p[1]) * n[1] + (pos[2] - p[2]) * n[2] <= 0) continue;
-      this.triW(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], fc.c[0], fc.c[1], fc.c[2], bias);
+      this.triW(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], fc.c[0], fc.c[1], fc.c[2], bias, scenery);
     }
   }
 

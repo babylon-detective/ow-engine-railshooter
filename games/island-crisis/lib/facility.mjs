@@ -22,6 +22,7 @@ export const HANGAR = { W: 2600, H: 1500, Z0: 9200, EXIT: 17000, END: 17800, DOO
 const HALL_BOX = [620, 950, 240, 120, 400];
 const HANGAR_DRONES = [700, 1100, 650, 160, 620];
 export const QNAME = ['front', 'right', 'behind', 'left'];
+export const HURDLES = [{ z: 1100, height: 70 }, { z: 5500, height: 70 }];
 
 const GATES = [
   { door: 3000, sw: [HALL.W - 6, 290, 2800], face: [-1, 0, 0], need: 1,
@@ -137,9 +138,33 @@ export function start(S, stage) {
   S.O = [0, 0, S.z];
   S.heading = 0;
   S.gates = GATES.map(g => ({ ...g, hit: stage !== 'hall', open: stage !== 'hall' ? 1 : 0 }));
-  S.script = { drones: 0, wave: -1, waveT: 0, gap: 90, exit: 0, enteredT: 0 };
+  S.script = { drones: 0, wave: -1, waveT: 0, gap: 90, exit: 0, enteredT: 0, obstacles: new Set() };
   S.speed = stage === 'hall' ? 3.4 : 3.4;
-  S.level = { shot, aim };
+  S.level = { shot, aim, canTarget };
+}
+
+export function canTarget(S, e) {
+  const z = S.z + e.f, from = S.z + S.player.f;
+  const width = z < HANGAR.Z0 ? HALL.W : HANGAR.W;
+  const height = z < HANGAR.Z0 ? HALL.H : HANGAR.H;
+  if (Math.abs(e.s) > width || e.u < 0 || e.u > height) return false;
+  const crosses = plane => (from - plane) * (z - plane) <= 0;
+  if (S.gates.some(g => g.open < .9 && crosses(g.door))) return false;
+  return !(S.stage === 'hangar' && S.script.exit < .9 && crosses(HANGAR.EXIT));
+}
+
+export function hitsHurdle(p, z, hurdle) {
+  return Math.abs(z + p.f - hurdle.z) < 45 && Math.abs(p.s) < HALL.W && p.u < hurdle.height;
+}
+
+export function playerObstacles(S, api) {
+  if (S.stage !== 'hall') return;
+  for (const hurdle of HURDLES) {
+    if (S.script.obstacles.has(hurdle.z) || !hitsHurdle(S.player, S.z, hurdle)) continue;
+    S.script.obstacles.add(hurdle.z);
+    Combat.hurt(S, 12, api);
+    S.toast = 'jump over low barriers: space or right face button'; S.toastT = 110;
+  }
 }
 
 const toLocalZ = (S, z) => z - S.z;
@@ -199,7 +224,8 @@ export function step(S, api) {
     }
 
     const front = S.enemies.filter(e => !e.dying && e.hp > 0);
-    if (S.z < 600) S.nudge = { text: 'wasd move. hold shift and tap a direction to dash', keys: [], dir: null };
+    if (S.z > 550 && S.z < 1200 || S.z > 5050 && S.z < 5600) S.nudge = { text: 'low barrier ahead. jump over it', keys: ['space'], dir: null };
+    else if (S.z < 600) S.nudge = { text: 'jump twice to hover. jump again to leap and land', keys: [], dir: null };
     else if (g && S.z > g.nudgeAt) {
       const turn = turnTo(S.camDir, g.need);
       const sp = S.cam && project(S.cam, ...g.sw);
@@ -341,6 +367,7 @@ function aim(S, cam, d) {
   if (d[1] > 1e-4) planes.push((H - o[1]) / d[1]);
   if (d[1] < -1e-4) planes.push(-o[1] / d[1]);
   for (const g of S.gates) if (g.open < .9 && d[2] > 1e-4 && o[2] < g.door) planes.push((g.door - o[2]) / d[2]);
+  if (S.stage === 'hangar' && S.script.exit < .9 && Math.abs(d[2]) > 1e-4) planes.push((HANGAR.EXIT - o[2]) / d[2]);
   for (const t of planes) if (t > 0 && t < best.t) best = { t, switch: false };
   return best.t < 1e9 ? best : null;
 }
@@ -390,9 +417,15 @@ export function draw(R, S, cam) {
     if (c.z1 < cz - far || c.z0 > cz + far) continue;
     if (c.tag === 'hangar-back' && S.stage === 'hall') continue;
     if (c.tag === 'hall' && S.stage === 'hangar' && c.z1 < S.z - 6000) continue;
-    R.mesh(c.base, 80);
-    R.mesh(c.decal, 40);
-    R.mesh(c.solid, 0);
+    R.mesh(c.base, 80, true);
+    R.mesh(c.decal, 40, true);
+    R.mesh(c.solid, 0, true);
+  }
+  if (S.stage === 'hall') for (const h of HURDLES) {
+    if (Math.abs(h.z - cz) > far) continue;
+    const faces = [];
+    box(faces, -HALL.W, HALL.W, 0, h.height, h.z - 25, h.z + 25, [236, 170, 40], [255, 235, 100]);
+    R.mesh(faces);
   }
   for (const g of S.gates) {
     if (Math.abs(g.door - cz) > far) continue;

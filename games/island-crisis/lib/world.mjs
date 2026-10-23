@@ -174,8 +174,11 @@ export function groundAt(x, z) {
   const H = world.H;
   const gx = clamp((x + HALF) / CELL, 0, N - .001), gz = clamp((z + HALF) / CELL, 0, N - .001);
   const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
-  const h00 = H[j * V + i], h10 = H[j * V + i + 1], h01 = H[(j + 1) * V + i], h11 = H[(j + 1) * V + i + 1];
-  return Math.max(SEA, lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz));
+  const h00 = Math.max(SEA, H[j * V + i]), h10 = Math.max(SEA, H[j * V + i + 1]);
+  const h01 = Math.max(SEA, H[(j + 1) * V + i]), h11 = Math.max(SEA, H[(j + 1) * V + i + 1]);
+  // Match the two rendered triangles, not a bilinear surface between them.
+  return fx >= fz ? h00 + (h10 - h00) * fx + (h11 - h10) * fz
+    : h00 + (h11 - h01) * fx + (h01 - h00) * fz;
 }
 
 function terrainColor(x, z, h, ny, path, i, j) {
@@ -378,8 +381,8 @@ export function drawTerrain(R, cam, step = 1) {
     if (Math.abs(c[0]) > Math.max(0, c[2]) * kx + span * 2 + 900) continue;
     const a = vert(j * V + i), b = vert(j * V + i2), d = vert(j2 * V + i2), e = vert(j2 * V + i);
     const t = (j * N + i) * 6;
-    R.triC(CX[a], CY[a], CZ[a], CX[b], CY[b], CZ[b], CX[d], CY[d], CZ[d], TC[t], TC[t + 1], TC[t + 2], 20);
-    R.triC(CX[a], CY[a], CZ[a], CX[d], CY[d], CZ[d], CX[e], CY[e], CZ[e], TC[t + 3], TC[t + 4], TC[t + 5], 20);
+    R.triC(CX[a], CY[a], CZ[a], CX[b], CY[b], CZ[b], CX[d], CY[d], CZ[d], TC[t], TC[t + 1], TC[t + 2], 20, true);
+    R.triC(CX[a], CY[a], CZ[a], CX[d], CY[d], CZ[d], CX[e], CY[e], CZ[e], TC[t + 3], TC[t + 4], TC[t + 5], 20, true);
   }
 }
 
@@ -389,6 +392,6 @@ export function drawScenery(R, cam) {
     const c = toCam(cam, o.x, o.y, o.z);
     if (c[2] < -o.rad || c[2] > cam.far + o.rad) continue;
     if (Math.abs(c[0]) > Math.max(0, c[2]) * kx + o.rad * 1.5) continue;
-    R.mesh(o.faces);
+    R.mesh(o.faces, 0, true);
   }
 }

@@ -5,7 +5,7 @@ const keyboard = { KeyW: 'ArrowUp', KeyS: 'ArrowDown', KeyA: 'ArrowLeft', KeyD: 
   ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
   KeyI: 'Y', Escape: 'Menu', Tab: 'View' };
 const watched = new Set([...Object.keys(keyboard), 'KeyJ', 'KeyK', 'KeyL', 'KeyQ', 'KeyE', 'KeyM',
-  'KeyG', 'Space', 'Enter', 'NumpadEnter', 'ShiftLeft', 'ShiftRight']);
+  'KeyG', 'KeyF', 'Space', 'Enter', 'NumpadEnter', 'ShiftLeft', 'ShiftRight']);
 const state = {
   held: new Set(), presses: [],
   mouse: { u: .5, v: .5, moved: false, down: false, clicks: [] },
@@ -60,7 +60,7 @@ export function readInput(api) {
     for (const [code, name] of Object.entries(keyboard)) if (state.held.has(code)) pad.down.add(name);
     const punch = state.held.has('KeyJ'), kick = state.held.has('KeyK');
     if (punch) pad.down.add('X');
-    if (kick) pad.down.add(punch ? 'Y' : 'A');
+    if (kick) pad.down.add('A');
     if (state.held.has('KeyL')) { pad.down.add('A'); pad.down.add('X'); }
   }
   const snap = {

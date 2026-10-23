@@ -86,7 +86,7 @@ export function drawNudge(api, S) {
   if (!n) return;
   const { w, h } = S.cam, t = S.t;
   const pad = S.padConnected;
-  const keys = (n.keys || []).map(k => pad ? ({ e: 'rt', q: 'lt', m: 'view' }[k] || k) : k);
+  const keys = (n.keys || []).map(k => pad ? ({ e: 'rt', q: 'lt', m: 'view', space: 'jump' }[k] || k) : k);
   const px = Math.max(3, Math.min(4.5, w / 420)), cap = px * 15;
   const tw = bigWidth(n.text, px);
   const kw = keys.reduce((sum, k) => sum + Math.max(cap, bigWidth(k, cap / 11) + cap / 11 * 5) + 16, 0);
@@ -169,9 +169,13 @@ export function drawHud(api, S, fr) {
     api.write(msg, w / 2 - api.textWidth(msg, 26) / 2, h - 150, 26, 180, 255, 200);
   }
   drawNudge(api, S);
+  const aim = S.autoAim ? (S.autoTarget ? 'auto lock' : 'auto: no target') : 'free aim';
+  const movement = { ground: 'running', jump: 'jumping', hover: 'hovering', fall: 'landing' }[p.motion];
+  const status = aim + ' / ' + movement;
+  api.write(status, w - api.textWidth(status, 24) - 30, h - 34, 24, ...(S.autoAim ? [255, 80, 100] : [120, 240, 255]));
   if (S.stageT < 900 && S.stage === 'hall') {
-    const lines = ['wasd move   shift or lb + direction dash   mouse or right stick aim   tap click or j to shoot',
-      'q e or lt rt turn the camera   space dodge   enter or start pause   m map (outdoors)'];
+    const lines = ['space / right face: jump, hover, leap   shift / l1: boost   k / l3: roll',
+      'f / r3: auto lock   q e / lt rt: camera   click / r: fire   enter / start: pause'];
     lines.forEach((l, i) => api.write(l, 30, h - 84 + i * 34, 26, 230, 236, 250));
   }
 

@@ -10,7 +10,9 @@
    right wall (E), left wall (Q), the back of a pillar you already passed
    (E E). Reach a door still shut and you die ("sealed in"). Nudges at the
    top of the screen name the keys, the compass slot flashes, and chevrons
-   point the way. A few drones teach tap fire.
+   point the way. Low 70-unit hurdles at z=1100 and z=5500 teach jumping;
+   running into one costs 12 HP, while clearing it is harmless. A few drones
+   teach tap fire. Doors still require their switches; jumping cannot bypass them.
 2. **The hangar.** Wide room, five scripted waves of *slabs*, armoured
    plates the size of a screen panel, from the front, right, left, behind,
    then front and back together. The runner halts 1700 short of the exit so
@@ -38,15 +40,52 @@ does **retry** after a death.
 - Dash: hold Shift (LB) and tap a direction for a short untouchable burst.
 - Enter (Start) pauses the whole loop.
 
+## Ground, jump, hover
+
+New runs and level transitions start with feet on the floor. Outside, contact
+follows the actual terrain triangles rather than the rail's smoothed height.
+Gravity advances only in `sim`; it freezes with pause and the route map.
+
+- Grounded or jumping: WASD / left stick steer on the horizontal ground
+  plane relative to the camera. Rail travel still happens automatically.
+- First jump: a gravity-bound jump that can clear a low barrier.
+- Second jump press before landing: engage hover. Left/right move across
+  the view; up/down raise/lower altitude. Releasing the stick holds height.
+  Dash and dodge also work while hovering.
+- Jump from hover: launch in the left-stick/WASD direction on the ground
+  plane, with an upward impulse, then fall and land. With no direction held,
+  leap forward relative to the camera. Hold Shift/L1/L to boost this leap.
+  Further jump presses cannot restore hover until the player lands.
+
+## Aim modes and camera visibility
+
+Free aim is the default, with a cyan SVG crosshair. Click R3 or press F to
+toggle auto aim: the crosshair turns red and snaps to the nearest living,
+on-screen enemy **by distance from the player**. It tracks that enemy's
+center. Flick the right stick towards another target to select it; center
+the stick before another flick. Death or loss of visibility acquires the
+nearest eligible target. With no targets the mode stays red but has no lock.
+Toggle back to free aim for precise switch shots. Mouse motion does not
+pull an auto-locked reticle away from its target.
+
+Foreground terrain and decorative meshes use a camera-space cutaway plane
+just before the player to avoid scenery covering the view in tight spaces.
+It is visual only: enemies, player, hurdles, closed doors and switches are
+not clipped, and auto aim cannot acquire enemies through closed doors.
+The title flyover and overhead map retain the full scenery.
+
 ## Controls
 
 | keyboard | pad | does |
 |---|---|---|
-| WASD | d-pad / left stick | move on the screen plane |
+| WASD | d-pad / left stick | steer; while hovering, up/down controls altitude |
 | Shift + direction | LB + direction | dash |
 | mouse / trackpad | right stick | aim the reticle |
+| F | R3 / right-stick click | toggle free aim / auto lock |
+| — | right-stick flick in auto mode | snap to another enemy center |
 | click / J | RB / X | fire (tap) |
-| Space / K | A / B | dodge roll |
+| Space | right face: PS Circle / Nintendo A / Xbox B | jump / hover / exit leap |
+| K | L3 or bottom face: PS X / Nintendo B / Xbox A | one dodge roll per press |
 | Q / E | LT / RT | turn the camera 90° |
 | M | View / Y | map (outdoors) |
 | Enter | Start | pause |
@@ -63,6 +102,7 @@ controllers work automatically; individual Chromium Joy-Cons are rotated
 back from their sideways browser layout. The left stick moves, the right
 stick aims, L + direction dashes, R fires, ZL/ZR rotate the camera,
 Minus opens the map, and Plus starts/confirms menus or pauses gameplay.
+Right-stick click toggles auto aim; left-stick click dodges.
 Face-button positions follow the standard layout (Nintendo B = bottom,
 A = right, Y = left, X = top); R is the unambiguous fire button.
 
@@ -74,6 +114,9 @@ locally per device ID/layout, not by connection order. Skip controls you
 don't have; the left stick also navigates menus and initiates dash.
 Closing cancels unfinished calibration; Use automatic mapping clears it.
 Opening setup pauses gameplay; resume afterwards with Plus or Enter.
+Older custom calibrations remain valid but do not have jump, L3, or R3
+bindings: recalibrate to add the three new prompts. Standard-layout pads
+and automatically paired Joy-Cons need no recalibration.
 
 If the panel reports no devices, focus the game and press buttons again.
 Check Brave's site-specific fingerprinting protection for localhost; if it
@@ -81,7 +124,9 @@ blocks Gamepad API access, allow it for this site or try Chrome to compare.
 Calibration cannot read hardware that the browser does not expose.
 No WebHID permission, driver, dependency, or engine modification is needed.
 
-Validation: `node games/island-crisis/tests/gamepad.test.mjs`.
+Validation:
+`node games/island-crisis/tests/gamepad.test.mjs` and
+`node games/island-crisis/tests/gameplay.test.mjs`.
 
 ## Title
 
@@ -101,6 +146,8 @@ does the screen flashes with CSS opacity (see WANTS.md).
 ## Files
 
 - `game.mjs`: modes (title / play / over / paused), camera, runner, menus, save
+- `lib/motion.mjs`: grounded movement, gravity, hover, directional leaps, dash/roll
+- `lib/targeting.mjs`: nearest visible targets, directional flick selection, center tracking
 - `lib/facility.mjs`: hallway and hangar geometry, gates and switches, waves, nudges
 - `lib/title.mjs`: track flyover camera, wordmark, menu layout
 - `lib/overlay.mjs`: SVG cursor and flash layer

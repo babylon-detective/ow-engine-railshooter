@@ -7,6 +7,7 @@ import * as Rail from './rail.mjs';
 import * as M from './mesh.mjs';
 import * as Overlay from './overlay.mjs';
 import { project, rayDir } from './render.mjs';
+import { targetPoint } from './targeting.mjs';
 
 // Per camera quadrant (0 ahead, 1 right, 2 behind, 3 left): the view direction
 // and the screen-right direction, in (f, s).
@@ -189,11 +190,16 @@ export function updateLock(S, fr) {
   const cam = S.cam;
   S.lock = null;
   S.aimT = 3200;
+  S.aimSwitch = false;
   if (!cam) return;
-  for (const e of S.enemies) {
-    if (e.dying) continue;
-    const w = Rail.toWorld(fr, e.f, e.s, centerU(e));
-    if (e.type === 'turret') w[1] = e.w[1] + 100;
+  if (S.autoAim && S.autoTarget) {
+    S.lock = S.autoTarget;
+    S.aimT = dist3(cam.pos, targetPoint(fr, S.autoTarget));
+    return;
+  }
+  for (const e of S.autoAim ? [] : S.enemies) {
+    if (e.dying || e.hp <= 0) continue;
+    const w = targetPoint(fr, e);
     const sp = project(cam, ...w);
     if (!sp) continue;
     const reach = Math.max(60, cam.f * e.rad / sp.z * 1.15);
@@ -204,7 +210,6 @@ export function updateLock(S, fr) {
   }
   // Indoors the reticle ray stops at the room (or a switch), so shots from
   // the gun converge on what the reticle is actually over.
-  S.aimSwitch = false;
   if (S.level?.aim) {
     const hit = S.level.aim(S, cam, rayDir(cam, S.reticle.x, S.reticle.y));
     if (hit && hit.t < S.aimT) { S.aimT = hit.t; S.lock = null; S.aimSwitch = !!hit.switch; }

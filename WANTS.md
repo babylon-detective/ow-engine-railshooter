@@ -27,6 +27,7 @@ reads this to decide what the engine grows next.
 - game: island-crisis
 - what the game would do with it: an aim reticle and menu cursor that follow the pointer at page resolution (like oskiewar's own SVG cursor), plus full-screen flashes for shots, hits and damage.
 - smallest version that would unblock it: `api.cursor(svgOrName)` and an alpha on `api.box`. Meanwhile the game adds its own DOM layer (`lib/overlay.mjs`) over the canvases.
+- Camera visibility: alpha on foreground scenery would let the game fade obstructing meshes; for now it clips decorative geometry just before the player in its software renderer, without hiding gameplay doors, targets or hazards.
 
 ## Big text
 - game: island-crisis

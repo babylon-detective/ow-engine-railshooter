@@ -31,6 +31,10 @@ check(result.rightX === 1 && result.rightY === 1, 'Upright right Joy-Con supplie
 for (const name of ['ArrowUp', 'LeftTrigger', 'RightTrigger', 'LeftShoulder', 'RightShoulder', 'View', 'Menu'])
   check(result.down.has(name), `Paired Joy-Con ${name}`);
 check(!result.down.has('A') && !result.down.has('X'), 'Pair does not inherit engine shoulder aliases');
+press(left, 10); press(right, 10, 0);
+result = readPads([left, right]);
+check(result.down.has('LeftStick') && result.down.has('RightStick'), 'Upright pair exposes separate L3 and R3 clicks');
+check(result.down.has('B'), 'Nintendo A/right face maps to jump button B');
 right.connected = false;
 check(readPads([left, right]).rightX === 0, 'Disconnected right controller releases aim and buttons');
 check(readPads([]).down.size === 0 && !readPads([]).connected, 'Unplugging clears controls');
