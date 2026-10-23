@@ -1,5 +1,6 @@
-; hound — a four-legged walker, gait and all, in the dialect. No keyframes:
-; the game moves the dog's place and tells it `distance` (units walked),
+; hound — a four-legged walker, gait and all, in the dialect. No keyframes.
+;
+; The game moves the dog's place and tells it `distance` (units walked),
 ; `speed`, `turbo` (excited: tail going, ears up) and where to look, as
 ; `(owner look x|y|z)` in the dog's own space. Everything else is arithmetic.
 ; Object space: x forward, y up, z to the right; the origin on the ground
@@ -9,10 +10,12 @@
 ; it the foot is planted and slides back under the body; for the rest it
 ; lifts and swings forward. Diagonal legs share a phase. At a standstill
 ; nothing moves, and the lift fades out as the dog slows.
+;
+; the numbers: how far a step carries, the share of it a foot stays
+; planted, how high a swinging foot lifts
 def stride 36
 def duty .6
 def lift 12
-def coat 1
 (let go (min 1 (/ speed 60)))
 (let bob (* go 1.5 (sin (* (/ distance stride) tau))))
 
@@ -33,8 +36,9 @@ def coat 1
 (let ny (+ hy (* 19 (sin pit))))
 (let nz (+ hz (* 19 (cos pit) (sin yaw))))
 
+; one grain scope round the whole body puts fur noise on every face.
+; body: chest to pelvis, and the neck up to the head
 (grain .12 6 0
-  ; body: chest to pelvis, and the neck up to the head
   (ink 196 150 96)
   (capsule 30 (+ 52 bob) 0  -30 (+ 50 bob) 0  30 8)
   (capsule 34 (+ 58 bob) 0  hx hy hz  16 6)
