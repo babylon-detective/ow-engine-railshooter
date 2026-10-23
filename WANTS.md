@@ -20,6 +20,12 @@ reads this to decide what the engine grows next.
   read, re-cut per level, switched and bent per tick, where a mesh file can
   only be drawn. See OBJECT-DIALECT.md → Curves and surfaces, and
   `games/showroom/objects/boulder.lisp` and `sapling.lisp`.
+- **Animation** (island-crisis asked how characters move) → engine 454: no
+  keyframes, rigs in the dialect. `bend` (a two-piece limb solved toward a
+  hint) and `orb` join `capsule`; joints are numbers an object computes
+  from `distance`, `speed`, `time`, `turbo` and `(owner look x|y|z)`, so
+  a walk is arithmetic. `games/kennel` is two four-legged hounds, trot,
+  head, ears, tail and paws in `objects/hound.lisp`.
 - **Mouse and keys the pad table doesn't carry** (island-crisis read the DOM
   itself in `lib/input.mjs`) → engine 452: `api.pointer()`, `api.keys()`,
   `api.cursor()`.

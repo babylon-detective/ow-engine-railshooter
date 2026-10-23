@@ -1,0 +1,9 @@
+{
+  "slug": "kennel",
+  "title": "kennel",
+  "author": "@jeffrey",
+  "description": "Two hounds on a lawn: one roams, one chases, and when they meet they stop nose to nose, tails going, then swap. The dog is one dialect object, gait and all.",
+  "mode": "own",
+  "entry": "game.mjs",
+  "engine": 454
+}
