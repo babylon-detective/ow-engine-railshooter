@@ -11,6 +11,15 @@ reads this to decide what the engine grows next.
   the engine's `revolver` and `monowheel` and a game's own `objects/*.lisp`,
   `api.defineObject`, `api.figure`. See GAME-SPEC.md → The world, and
   `games/showroom`.
+- **Richer art: mesh models, textures** (island-crisis asked how to bring
+  Blender meshes in) → engine 453, on purpose not as import: the object
+  dialect grew curves and procedural surfaces instead — `tube` (a smooth,
+  tapered, capped tube through points), `patch` (a bicubic Bézier surface),
+  and the `grain`, `mottle` and `rough` scopes (noise-shaded, noise-blended
+  and noise-displaced faces, no images). A form written as source can be
+  read, re-cut per level, switched and bent per tick, where a mesh file can
+  only be drawn. See OBJECT-DIALECT.md → Curves and surfaces, and
+  `games/showroom/objects/boulder.lisp` and `sapling.lisp`.
 - **Mouse and keys the pad table doesn't carry** (island-crisis read the DOM
   itself in `lib/input.mjs`) → engine 452: `api.pointer()`, `api.keys()`,
   `api.cursor()`.

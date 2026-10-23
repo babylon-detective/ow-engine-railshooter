@@ -188,9 +188,12 @@ off the surface. `games/showroom` does both.
 Oskiewar's props are small KidLisp programs in the object dialect
 (`OBJECT-DIALECT.md` in the engine's repo: `slab`, `ball`, `limb`, `ring`,
 `drum`, `plate`, `stroke`, `ink`, `outline`, `move`, `rotate`, `radial`,
-`mirror`, inputs like `time` and `distance`). They compile once and draw
-flat, inked, in the engine's style. A game draws the engine's and brings
-its own.
+`mirror`, inputs like `time` and `distance`; lit forms `revolve`, `tube`,
+`patch`, and the `grain`, `mottle` and `rough` scopes for procedural
+surfaces, engine 453). They compile once and draw flat, inked, in the
+engine's style. A game draws the engine's and brings its own. There is no
+model import on purpose: a form written as source can be read, re-cut per
+level, switched and bent per tick, where a mesh file can only be drawn.
 
 | call | does |
 |---|---|
