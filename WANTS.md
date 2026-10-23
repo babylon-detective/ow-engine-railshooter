@@ -32,3 +32,8 @@ reads this to decide what the engine grows next.
 - game: island-crisis
 - what the game would do with it: titles, banners and tutorial prompts at large sizes.
 - smallest version that would unblock it: let `api.write` honour `size` in own mode (it's held to the one dojo size). Meanwhile a block font drawn with `api.box` (`lib/bigtext.mjs`).
+
+## Paired Joy-Cons and unaliased controller input
+- game: island-crisis
+- what the game would do with it: combine upright left/right Joy-Cons into one player's move/aim controls, including nonstandard browser layouts, without ZL/ZR also generating fighting-game face-button actions.
+- smallest version that would unblock it: raw controller IDs, mappings and axes/buttons, configurable pairing, and an option to disable trigger aliases in own mode. Meanwhile the game polls the Gamepad API itself and provides saved calibration for unknown layouts.

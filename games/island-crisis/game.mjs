@@ -219,12 +219,12 @@ function islandNudge() {
 // ── The runner ───────────────────────────────────────────────────────────
 function playerSim(api, inp, down, press) {
   const p = S.player, [LATERAL, CEILING] = BOUNDS[S.stage];
-  const held = b => down.has(b);
+  const held = b => inp.pad.down.has(b);
   let ix = (held('ArrowRight') ? 1 : 0) - (held('ArrowLeft') ? 1 : 0);
   let iy = (held('ArrowUp') ? 1 : 0) - (held('ArrowDown') ? 1 : 0);
-  const pad = api.pad(0);
-  if (Math.abs(pad.leftX) > .15) ix += pad.leftX;
-  if (Math.abs(pad.leftY) > .15) iy += pad.leftY;
+  const pad = inp.pad;
+  ix ||= pad.leftX;
+  iy ||= pad.leftY;
   const il = Math.hypot(ix, iy);
   if (il > 1) { ix /= il; iy /= il; }
 
@@ -361,7 +361,7 @@ function menuSim(api, inp, press) {
   if (press('ArrowDown')) { S.sel = (S.sel + 1) % n; api.drum('hat', .8); }
   let pick = -1;
   for (const c of m.clicks) { const r = Title.rowAt(L, c.x, c.y); if (r) pick = r.i; }
-  if (press('X') || press('A') || press('RightShoulder') || inp.pressed.has('Space') || inp.pressed.has('Enter')) pick = S.sel;
+  if (press('X') || press('A') || press('B') || press('Menu') || press('RightShoulder') || inp.pressed.has('Space') || inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter')) pick = S.sel;
   if (pick < 0) return;
   if (!enabled[pick]) { api.drum('block', 1); return; }
   const what = items[pick];
@@ -375,10 +375,15 @@ function menuSim(api, inp, press) {
 // ── The tick ─────────────────────────────────────────────────────────────
 export function sim(api) {
   const inp = readInput(api);
-  const down = new Set(api.pad(0).down);
-  // Enter reaches the pad as A; in a run it means pause, not dodge.
-  const enter = inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter') || inp.held.has('Enter') || inp.held.has('NumpadEnter');
-  const press = b => down.has(b) && !prevDown.has(b) && !(b === 'A' && enter && S.mode === 'play');
+  S.padConnected = inp.pad.connected;
+  S.controllerStatus = inp.pad.status;
+  const down = new Set([...inp.pad.down, ...inp.directions]);
+  if (inp.setupOpen) {
+    if (S.mode === 'play') S.paused = true;
+    prevDown = down;
+    return;
+  }
+  const press = b => down.has(b) && !prevDown.has(b);
   const pauseKey = inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter') || press('Menu');
 
   // Pause stops the whole loop: nothing advances, not even the clock, until
@@ -547,6 +552,7 @@ export function paint(api) {
     const { width: w, height: h } = api.view();
     const foot = 'wasd move   shift + direction dash   mouse aim   tap click or j shoot   q e turn camera   enter pause';
     api.write(foot, w / 2 - api.textWidth(foot, 24) / 2, h - 46, 24, 240, 246, 255);
+    if (S.controllerStatus) api.write(S.controllerStatus, 30, h - 82, 24, 255, 236, 120);
   } else if (S.mode === 'over') drawOver(api);
   if (S.paused) drawPause(api);
 }

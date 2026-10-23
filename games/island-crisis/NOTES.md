@@ -51,6 +51,38 @@ does **retry** after a death.
 | M | View / Y | map (outdoors) |
 | Enter | Start | pause |
 
+### Joy-Cons on macOS / Brave
+
+Use `http://localhost:7777/play/island-crisis`, click the page and press a
+button on **each** Joy-Con. Bluetooth pairing alone does not guarantee that
+the browser exposes a controller. Hold the two halves upright.
+
+The game polls the browser directly, combines both halves into one player,
+and does not use the engine's fighting-game trigger aliases. Standard-layout
+controllers work automatically; individual Chromium Joy-Cons are rotated
+back from their sideways browser layout. The left stick moves, the right
+stick aims, L + direction dashes, R fires, ZL/ZR rotate the camera,
+Minus opens the map, and Plus starts/confirms menus or pauses gameplay.
+Face-button positions follow the standard layout (Nintendo B = bottom,
+A = right, Y = left, X = top); R is the unambiguous fire button.
+
+Open **Controllers (G)** to see controller IDs, axes, and pressed button
+indices. If the browser reports an unknown/raw layout, use **Calibrate /
+remap** with both halves connected. Center all sticks before each Ready
+step, perform the requested action, then release it. Bindings are saved
+locally per device ID/layout, not by connection order. Skip controls you
+don't have; the left stick also navigates menus and initiates dash.
+Closing cancels unfinished calibration; Use automatic mapping clears it.
+Opening setup pauses gameplay; resume afterwards with Plus or Enter.
+
+If the panel reports no devices, focus the game and press buttons again.
+Check Brave's site-specific fingerprinting protection for localhost; if it
+blocks Gamepad API access, allow it for this site or try Chrome to compare.
+Calibration cannot read hardware that the browser does not expose.
+No WebHID permission, driver, dependency, or engine modification is needed.
+
+Validation: `node games/island-crisis/tests/gamepad.test.mjs`.
+
 ## Title
 
 Massive ISLAND / CRISIS block letters over a camera that flies the tracks on
@@ -76,7 +108,9 @@ does the screen flashes with CSS opacity (see WANTS.md).
 - `lib/hud.mjs`: HUD, nudges and keycaps, compass, map overlay
 - `lib/world.mjs`, `lib/rail.mjs`: island, biomes, rail network, routes
 - `lib/render.mjs`, `lib/mesh.mjs`: software 3D (clip, painter's sort, fog)
-- `lib/input.mjs`: Q/E/M/Space/Enter/Shift and the pointer
+- `lib/input.mjs`: keyboard, pointer, and unified per-tick controller snapshot
+- `lib/gamepad.mjs`: standard/Joy-Con mapping, dead zones, saved raw bindings
+- `lib/controller-setup.mjs`: controller diagnostics and calibration panel
 - `lib/bigtext.mjs`: block font (api.write draws one fixed size)
 
 ## Next
