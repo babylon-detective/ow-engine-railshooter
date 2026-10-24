@@ -313,7 +313,7 @@ function syncNativeAccount() {
 }
 
 // Monotonic count of committed revisions to this piece (next revision included).
-const buildVersion = 454;
+const buildVersion = 455;
 
 // ── Downstream games ─────────────────────────────────────────────────────
 // A .oskie game (xbox/GAME-SPEC.md) arrives from the web shell as
@@ -32735,7 +32735,11 @@ function sim() {
     }
     return;
   }
-  if (ownsFrame()) { callDownstream("sim"); return; }
+  // An own game never runs gameSim, where the stage follows the window, so
+  // the sync happens here: api.view() keeps up with a resize, as the HUD and
+  // the camera's aspect expect (@jeffrey, 2026-10-24: "when resizing the
+  // window the ui should properly reframe").
+  if (ownsFrame()) { syncGameView(); callDownstream("sim"); return; }
   try {
     netDrainHostInbox();
     // A turn that ended mid-session is the chair's last word: leave the fight

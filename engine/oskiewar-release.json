@@ -1,9 +1,9 @@
 {
   "format": "computer.aesthetic.oskiewar-release",
   "version": 1,
-  "build": 454,
-  "release": "c0b220d9cb7ab21c659616ea881a0783b6acbac3d66630e48705c96fc0372c22",
-  "game": "967ac73f3693f468f8f9071f863a1f325e35befbe8e6f5064d14b6c4582cf048",
+  "build": 455,
+  "release": "32941a87367a5a554d369a4174326389e675dd7a0515f43da2b71ed2618d612b",
+  "game": "3f16d39c3bcc5ef40ad208955afb2517d6fd7a15bd0d8d7dfc97e3b956de7473",
   "files": {
     "/account-deletion.mjs": {
       "sha256": "dcba438bdba45f1903173986122cb3fa1a5420d0cad4d132bbebc6b96540aaa6",
@@ -110,8 +110,8 @@
       "bytes": 6376
     },
     "/oskiewar.js": {
-      "sha256": "967ac73f3693f468f8f9071f863a1f325e35befbe8e6f5064d14b6c4582cf048",
-      "bytes": 1899903
+      "sha256": "3f16d39c3bcc5ef40ad208955afb2517d6fd7a15bd0d8d7dfc97e3b956de7473",
+      "bytes": 1900193
     },
     "/release-client.mjs": {
       "sha256": "208229156d3ac0be8df53b93f4d8e0b5e4077e017ce8d93130bd0b032cf8807d",

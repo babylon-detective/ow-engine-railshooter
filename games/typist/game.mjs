@@ -379,7 +379,10 @@ function glyph(api, ch, x, y, cell, col) { drawGlyph(api, ch, x + cell * .3, y +
 // still, so where to type is never in doubt (@jeffrey, 2026-10-24).
 const LIT = [120, 255, 150], GHOST = [150, 148, 168], FAINT = [66, 62, 82], BRIGHT = [245, 243, 255], CURSOR = [255, 236, 120], WRONG = [255, 70, 70];
 function drawPhrase(api, h, width) {
-  const cell = 11, gap = cell * 4, y = 150, blink = S.t % 36 < 22;
+  // block letters at cell 11, smaller when the stage is too narrow for the
+  // phrase (a portrait window), so the whole word always fits
+  const letters = h.targets.reduce((n, t) => n + t.word.length, 0), gaps = h.targets.length - 1;
+  const cell = Math.min(11, (width - 80) / (letters * 6 - 1 + gaps * 4)), gap = cell * 4, y = 150, blink = S.t % 36 < 22;
   const wordW = (w) => w.length * glyphWidth(cell) - cell;
   const total = h.targets.reduce((acc, t, i) => acc + wordW(t.word) + (i ? gap : 0), 0);
   let x = (width - total) / 2;
@@ -398,6 +401,7 @@ function drawPhrase(api, h, width) {
 }
 export function paint(api) {
   const { width, height } = api.view();
+  S.view = { width, height };
   api.wipe(22, 20, 30);
   for (const h of S.halls) drawHall(api, h);
   const h = current();
@@ -424,7 +428,7 @@ export function paint(api) {
   // in over them, at once — headline in block letters, the score under it,
   // and a blinking line that says how to go again
   if (S.over && S.dead >= 8) {
-    const top = height * .18, cell = 9, line = "the door wins", lw = line.length * glyphWidth(cell) - cell;
+    const top = height * .18, cell = 9, line = "smashed", lw = line.length * glyphWidth(cell) - cell;
     api.box(0, top, width, 250, 20, 16, 28);
     let x = (width - lw) / 2;
     for (const ch of line) { if (ch !== " ") glyph(api, ch, x, top + 34, cell, [255, 236, 120]); x += glyphWidth(cell); }
