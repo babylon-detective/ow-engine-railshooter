@@ -1,5 +1,5 @@
 // voice — each word, once typed, spoken back in @jeffrey's voice. Nothing is
-// synthesized at play time: the clips are pre-rendered (ElevenLabs v3, the
+// synthesized at play time: the clips are pre-rendered (ElevenLabs v4, the
 // jeffrey-pvc voice; see NOTES.md → Voice), one per real word and one per
 // consonant-vowel syllable spelt the way it sounds ("bah", "bee", "boo"), so
 // a nonsense word like "boyu" is its syllables scheduled back to back on an

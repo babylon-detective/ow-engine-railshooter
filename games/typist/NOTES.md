@@ -48,7 +48,7 @@ the hero sprints through it.
 
 `voice/*.mp3` are pre-rendered: one clip per real word and one per
 consonant-vowel syllable spelt as it sounds (`bah beh bee boh boo …`),
-ElevenLabs v3 in the jeffrey-pvc voice, trimmed so they butt together.
+ElevenLabs v4 in the jeffrey-pvc voice, trimmed so they butt together.
 `lib/voice.mjs` schedules a word's syllables back to back on an
 AudioContext, so any word the generator makes plays with no round trip.
 Missing clips mean silence, not errors. Rendered by
