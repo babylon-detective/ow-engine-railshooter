@@ -18,9 +18,18 @@ active word:
   switch drops, the hero turns back and the next word lights up;
 - a wrong letter costs one letter of progress and a frown — you only partly
   got there;
-- every switch down lifts the door; reach a shut door and the hero bumps it
-  and loses a heart. The word keeps what you typed — a bump never takes
-  your letters. Three bumps end the run (Space restarts);
+- every switch down lifts the door; reach a shut door and the hero smashes
+  into it and breaks apart — every limb a shard, plus chips, bouncing off
+  the door and skidding along the floor while the camera cuts back. With a
+  heart left the shards are drawn back together on a hero standing a way
+  down the hall and the glide goes on; the word keeps what you typed — a
+  smash costs a heart, never your letters. The third smash leaves the pieces
+  where they fell under "the door wins" (Space or Enter go again at once,
+  any letter after a moment);
+- the phrase sits on a dark plate in block letters: typed letters lit green,
+  the one to type now a ghost that always blinks with a cursor under it,
+  the letters after it fainter still; the hud is one size (28, as
+  oskiewar's) with a drop shadow on every reading;
 - each correct letter sounds its notepat note (c d e f g a b are themselves,
   v s w r q the sharps, h–n the octave up with t y u o p its sharps, z x
   below) and flashes yellow; a wrong one flashes red with a two-note fall;

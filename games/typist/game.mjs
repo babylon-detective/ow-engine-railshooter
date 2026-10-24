@@ -5,10 +5,13 @@
 // on the last letter the arm comes up, the shot lands, the switch drops, and
 // the hero turns back. A wrong letter costs one letter of progress: you only
 // partially get there. Reach the door with a word unfinished and the hero
-// bumps it; three bumps end the run, but the word keeps what you typed — a
-// bump costs a heart, never your letters (@jeffrey, 2026-10-23). Each word,
-// once typed, is spoken back in @jeffrey's voice (lib/voice.mjs). One word
-// at a time, nothing to aim.
+// smashes into it and breaks apart — limbs and chips bounce off the door and
+// skid along the floor (@jeffrey, 2026-10-24: no standing at the door
+// waiting). With a heart left the pieces pull back together a way down the
+// hall and the glide resumes; the word keeps what you typed — a smash costs
+// a heart, never your letters (@jeffrey, 2026-10-23). The third smash leaves
+// the pieces where they fell. Each word, once typed, is spoken back in
+// @jeffrey's voice (lib/voice.mjs). One word at a time, nothing to aim.
 // World units are the engine's: y grows DOWN, the floor is at 1800. Halls
 // run along +z. See NOTES.md.
 
@@ -49,7 +52,7 @@ function pace(h = current()) {
 }
 const SPRINT = 4.2;
 const S = { t: 0, s: 0, halls: [], run: 0, best: 0, hearts: 3, miss: 0, prev: new Set(),
-  shot: null, bump: 0, dead: 0, typed: 0, wrong: 0, over: false, beat: 0, api: null, fx: [], cues: [] };
+  shot: null, bump: 0, dead: 0, typed: 0, wrong: 0, over: false, beat: 0, api: null, fx: [], cues: [], smash: null, shards: [] };
 
 // Words: real short ones on even halls, syllable nonsense ("boyu popo rebo")
 // on odd ones — three action events, in letters.
@@ -83,12 +86,12 @@ function hall(index, z0) {
   const targets = words.map((word, i) => ({ word, real: REAL.includes(word), typed: 0, done: false, hit: 0,
     x: (i - (n - 1) / 2) * 190, y: FLOOR - HEIGHT * .55, z: z0 + HALL, w: size, h: size }));
   if (S.api) warm(S.api, targets.flatMap((t) => partsOf(t.word, t.real)));
-  return { index, z0, z1: z0 + HALL, open: 0, targets, at: 0 };
+  return { index, z0, z1: z0 + HALL, open: 0, targets, at: 0, jolt: 0 };
 }
 
 function restart() {
   S.halls = [hall(0, 0), hall(1, HALL)];
-  Object.assign(S, { s: 0, run: 0, hearts: 3, dead: 0, typed: 0, wrong: 0, over: false, bump: 0, shot: null, beat: 0, fx: [], cues: [] });
+  Object.assign(S, { s: 0, run: 0, hearts: 3, dead: 0, typed: 0, wrong: 0, over: false, bump: 0, shot: null, beat: 0, fx: [], cues: [], smash: null, shards: [] });
 }
 export function boot(api) { S.api = api; api.cursor("none"); restart(); }
 
@@ -98,14 +101,17 @@ const active = (h) => h.targets[h.at] || null;
 // Keys: letters only, one press each; space between words is free.
 const LETTER = /^Key([A-Z])$/;
 export function sim(api) {
+  if (S.freeze) return;   // a test harness can hold a frame still
   S.t++;
   const keys = new Set(api.keys());
   const h = current(), tg = active(h);
   for (const k of keys) {
     if (S.prev.has(k)) continue;
-    if (S.over) { if (k === "Enter" || k === "Space") restart(); continue; }
+    // the run is over: space or enter go again at once, any letter after a
+    // moment (so the word you were mid-way through does not restart it)
+    if (S.over) { if (k === "Enter" || k === "Space" || (S.dead > 45 && LETTER.test(k))) restart(); continue; }
     const m = LETTER.exec(k);
-    if (!m || !tg || tg.done) continue;
+    if (!m || !tg || tg.done || S.smash) continue;
     const letter = m[1].toLowerCase();
     if (letter === tg.word[tg.typed]) {
       tg.typed++; S.typed++;
@@ -132,25 +138,30 @@ export function sim(api) {
   if (S.miss > 0) S.miss--;
   if (S.bump > 0) S.bump--;
   for (const t of h.targets) if (t.hit > 0) t.hit--;
-  if (S.over) return;
-  beat(api, h);
-  if (h.open) h.open = Math.min(1, h.open + .035);
-  const stopAt = h.z1 - 150;
-  // words done: sprint through the door; otherwise glide at the run's pace
-  const step = h.open ? pace(h) * SPRINT : pace(h);
-  if (h.open || S.s < stopAt) S.s = Math.min(h.open ? S.s + step : stopAt, S.s + step);
-  else if (!S.bump) {
-    // At a shut door with words left: the hero bumps it. Three bumps end the run.
-    S.bump = 70; S.hearts--; flash(RED, 18); api.drum("body-impact", 1.6, 0);
-    if (S.hearts <= 0) { S.over = true; api.drum("gong", 1, 0); }
+  for (const hh of S.halls) if (hh.jolt > 0) hh.jolt *= .82;
+  if (S.over) { S.dead++; stepShards(); }
+  else if (S.smash) stepSmash(api, h);
+  else {
+    beat(api, h);
+    if (h.open) h.open = Math.min(1, h.open + .035);
+    // words done: sprint through the door; otherwise glide at the run's pace,
+    // straight into the door if it is still shut
+    S.s += h.open ? pace(h) * SPRINT : pace(h);
+    if (!h.open && S.s >= h.z1 - 70) smashInto(api, h);
+    // Through an open door: the hall behind is done, a new one is laid ahead.
+    if (S.s > h.z1 + 60 && h.open) {
+      S.halls.shift(); const last = S.halls[S.halls.length - 1];
+      S.halls.push(hall(last.index + 1, last.z1)); S.run++; S.best = Math.max(S.best, S.run);
+      api.drum("bell", .7, 0);
+    }
   }
-  // Through an open door: the hall behind is done, a new one is laid ahead.
-  if (S.s > h.z1 + 60 && h.open) {
-    S.halls.shift(); const last = S.halls[S.halls.length - 1];
-    S.halls.push(hall(last.index + 1, last.z1)); S.run++; S.best = Math.max(S.best, S.run);
-    api.drum("bell", .7, 0);
-  }
-  api.camera({ position: [90, EYE - 40, S.s - 420], target: [-10, EYE + 70, S.s + 600], fov: 74 });
+  // the camera rides 420 behind the hero; on a smash it cuts back so the
+  // burst plays out in front of the door, and comes forward again as the
+  // hero re-forms (over, it stays back on the pieces)
+  let pull = 0;
+  if (S.over) pull = 380 * Math.min(1, S.dead / 6);
+  else if (S.smash) { const m = S.smash; pull = m.t <= BURST ? 380 * Math.min(1, m.t / 6) : 380 * (1 - Math.min(1, (m.t - BURST) / GATHER)); }
+  api.camera({ position: [90, EYE - 40 - pull * .1, S.s - 420 - pull], target: [-10, EYE + 70, S.s + 600], fov: 74 });
 }
 
 // ——— the beat: a kit under the hall, keeping time with the glide ———
@@ -180,6 +191,89 @@ function shoot(api, h, tg) {
   if (h.targets.every((t) => t.done)) { h.open = .01; api.drum("gong", .5, 0); }
 }
 
+// ——— the smash: the hero hits a shut door and breaks apart ———
+// Every limb becomes a shard — a lit quad the size of the segment, in its
+// colour — plus a handful of chips. They bounce off the door (back down the
+// hall), up, and out, under gravity, and skid along the floor. With a heart
+// left, after the burst the shards are drawn back to where the limbs belong
+// on a hero re-forming a way back down the hall, and the glide goes on
+// (@jeffrey, 2026-10-24: the failure should have the character smash into
+// the door and break apart, not wait there).
+const SKIN = [226, 188, 150], HAIR = [96, 66, 48], ARM_R = [168, 130, 214], LEG_L = [26, 26, 40];
+const PIECES = [
+  { a: "head", b: "head", w: 42, l: 42, col: SKIN }, { a: "head", b: "head", w: 40, l: 18, col: HAIR, up: 16 },
+  { a: "neck", b: "pelvis", w: 34, col: SKIN },
+  { a: "shoulder-l", b: "elbow-l", w: 11, col: SKIN }, { a: "elbow-l", b: "hand-l", w: 10, col: SKIN },
+  { a: "shoulder-r", b: "elbow-r", w: 11, col: ARM_R }, { a: "elbow-r", b: "hand-r", w: 10, col: ARM_R },
+  { a: "hip-l", b: "knee-l", w: 13, col: LEG_L }, { a: "knee-l", b: "foot-l", w: 12, col: LEG_L },
+  { a: "hip-r", b: "knee-r", w: 13, col: SKIN }, { a: "knee-r", b: "foot-r", w: 12, col: SKIN },
+];
+const BURST = 42, GATHER = 30;
+const mid = (J, pc) => { const a = J[pc.a], b = J[pc.b]; return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - (pc.up || 0), (a[2] + b[2]) / 2]; };
+function shard(pc, J) {
+  const a = J[pc.a], b = J[pc.b], d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d);
+  // the quad's own axes: along the limb, and across it; spin about a random axis
+  const u1 = L > 1 ? d.map((v) => v / L) : [0, 1, 0];
+  let u2 = Math.abs(u1[1]) < .9 ? [-u1[2], 0, u1[0]] : [1, 0, 0];   // u1 × up, or x when the limb is upright
+  const m = Math.hypot(...u2) || 1; u2 = u2.map((v) => v / m);
+  const ax = [rnd() - .5, rnd() - .5, rnd() - .5], am = Math.hypot(...ax) || 1;
+  return { pc, p: mid(J, pc), v: [(rnd() - .5) * 9, -(3 + rnd() * 8), -(3 + rnd() * 6)], u1, u2, axis: ax.map((v) => v / am),
+    spin: (rnd() - .5) * .5, hl: (pc.l || L) / 2, hw: pc.w / 2, col: pc.col, rest: 0 };
+}
+function smashInto(api, h) {
+  S.hearts--; flash(RED, 18); h.jolt = 16;
+  api.drum("body-impact", 1.8, 0); api.drum("glass-shard", 1.5, -.2); api.drum("whoosh", .9, .2);
+  const J = pose(h);
+  S.shards = PIECES.map((pc) => shard(pc, J));
+  for (let i = 0; i < 10; i++) {
+    const c = shard({ a: "pelvis", b: "neck", w: 6 + rnd() * 9, l: 6 + rnd() * 9, col: [SKIN, HAIR, ARM_R, LEG_L][(rnd() * 4) | 0] }, J);
+    c.v = [(rnd() - .5) * 16, -(4 + rnd() * 12), -(4 + rnd() * 9)]; c.spin *= 2; S.shards.push(c);
+  }
+  S.smash = { t: 0, from: S.s, to: Math.max(h.z0 + 120, S.s - 720) };
+  if (S.hearts <= 0) { S.over = true; S.dead = 0; S.smash = null; api.drum("gong", 1, 0); }
+}
+// an axis-angle turn of a vector (Rodrigues)
+function turn(v, k, a) {
+  const c = Math.cos(a), s = Math.sin(a), dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+  const cr = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+  return [0, 1, 2].map((i) => v[i] * c + cr[i] * s + k[i] * dot * (1 - c));
+}
+function stepShards() {
+  const h = current();
+  for (const d of S.shards) {
+    d.v[1] += .55; for (let i = 0; i < 3; i++) d.p[i] += d.v[i];
+    const floor = FLOOR - Math.min(d.hw, 6);
+    if (d.p[1] > floor) { d.p[1] = floor; d.v[1] *= -.42; d.v[0] *= .72; d.v[2] *= .72; d.spin *= .55; if (Math.abs(d.v[1]) < .6) { d.v[1] = 0; d.rest++; } }
+    if (Math.abs(d.p[0]) > HALF - 8) { d.p[0] = Math.sign(d.p[0]) * (HALF - 8); d.v[0] *= -.5; }
+    if (d.p[2] > h.z1 - 10) { d.p[2] = h.z1 - 10; d.v[2] *= -.5; }
+    if (d.spin) { d.u1 = turn(d.u1, d.axis, d.spin); d.u2 = turn(d.u2, d.axis, d.spin); }
+  }
+}
+function stepSmash(api, h) {
+  const m = S.smash; m.t++;
+  if (m.t <= BURST) { stepShards(); return; }
+  // gathering: the camera eases back down the hall and every shard is drawn
+  // to its limb's place on the hero standing there
+  const k = Math.min(1, (m.t - BURST) / GATHER), e = k * k * (3 - 2 * k);
+  S.s = m.from + (m.to - m.from) * e;
+  const J = pose(h);
+  for (const d of S.shards) {
+    const to = mid(J, d.pc), w = .12 + .5 * k;
+    for (let i = 0; i < 3; i++) d.p[i] += (to[i] - d.p[i]) * w;
+    d.spin *= .8; if (d.spin) { d.u1 = turn(d.u1, d.axis, d.spin); d.u2 = turn(d.u2, d.axis, d.spin); }
+  }
+  if (m.t === BURST + 1) api.drum("whoosh", .6, -.3);
+  if (k >= 1) { S.smash = null; S.shards = []; S.bump = 45; api.drum("block", .9, 0); api.tone(hz("c"), .12); }
+}
+function drawShards(api) {
+  for (const d of S.shards) {
+    const e1 = d.u1.map((v) => v * d.hl), e2 = d.u2.map((v) => v * d.hw), c = d.p;
+    const a = [c[0] + e1[0] + e2[0], c[1] + e1[1] + e2[1], c[2] + e1[2] + e2[2]], b = [c[0] + e1[0] - e2[0], c[1] + e1[1] - e2[1], c[2] + e1[2] - e2[2]];
+    const cc = [c[0] - e1[0] - e2[0], c[1] - e1[1] - e2[1], c[2] - e1[2] - e2[2]], dd = [c[0] - e1[0] + e2[0], c[1] - e1[1] + e2[1], c[2] - e1[2] + e2[2]];
+    quad(api, a, b, cc, dd, d.col); quad(api, dd, cc, b, a, d.col);
+  }
+}
+
 // ——— the hero: sixteen joints, posed by the word's progress ———
 // Standing at z = S.s facing +z. Progress turns the body toward the active
 // switch and raises the right arm along the line to it; the head leads.
@@ -194,7 +288,7 @@ function pose(h) {
   const { k, tg } = progressOf(h);
   const turn = tg ? angleTo(tg) * Math.min(1, k * 1.15) : 0;
   const sprinting = h.open > 0 && h.open < 1;
-  const stride = Math.sin(S.s / (sprinting ? 16 : 26)) * (S.bump || S.over ? 0 : 1) * (sprinting ? 1.4 : 1);
+  const stride = Math.sin(S.s / (sprinting ? 16 : 26)) * (S.smash || S.over ? 0 : 1) * (sprinting ? 1.4 : 1);
   const bob = Math.abs(Math.cos(S.s / (sprinting ? 16 : 26))) * (sprinting ? 7 : 4);
   const z0 = S.s, y = (up) => FLOOR - up + bob;
   // local: x right, up, z forward; turned about the pelvis, then placed
@@ -244,8 +338,9 @@ function drawHall(api, h) {
     quad(api, [-HALF, FLOOR, zb], [-HALF, FLOOR - HEIGHT, zb], [-HALF, FLOOR - HEIGHT, za], [-HALF, FLOOR, za], wall);
     quad(api, [HALF, FLOOR, za], [HALF, FLOOR - HEIGHT, za], [HALF, FLOOR - HEIGHT, zb], [HALF, FLOOR, zb], wall);
   }
-  // The door lifts once every switch is down; it is cut around the switches.
-  const lift = h.open * HEIGHT, z = z1, top = FLOOR - HEIGHT, bottom = FLOOR - lift;
+  // the door lifts once every switch is down (cut around the switches) and
+  // jolts when the hero hits it
+  const lift = h.open * HEIGHT + Math.sin(S.t * 1.9) * h.jolt, z = z1, top = FLOOR - HEIGHT, bottom = FLOOR - lift;
   const door = h.open ? [70, 120, 80] : [58, 50, 60];
   const slab = (xa, xb, ya, yb) => { if (xb > xa && yb > ya) quad(api, [xa, yb, z], [xb, yb, z], [xb, ya, z], [xa, ya, z], door); };
   if (lift >= HEIGHT) return;
@@ -272,12 +367,42 @@ function drawHall(api, h) {
   slab(x, HALF, top, bottom);
 }
 
+// Text: one size for every reading, as oskiewar's hud, each with a drop
+// shadow two over and three down so it reads over the hall.
+const TYPE = 28, INK = [12, 10, 20];
+function write(api, text, x, y, col) { api.write(text, x + 2, y + 3, TYPE, ...INK); api.write(text, x, y, TYPE, ...col); }
+const centre = (api, text, width) => (width - api.textWidth(text, TYPE)) / 2;
+// Block letters with a shadow: a dark copy a third of a cell over and down.
+function glyph(api, ch, x, y, cell, col) { drawGlyph(api, ch, x + cell * .3, y + cell * .35, cell, ...INK); drawGlyph(api, ch, x, y, cell, ...col); }
+// The phrase: typed letters lit green; the one to type now a ghost that
+// always blinks, with a cursor under it; the letters after it fainter
+// still, so where to type is never in doubt (@jeffrey, 2026-10-24).
+const LIT = [120, 255, 150], GHOST = [150, 148, 168], FAINT = [66, 62, 82], BRIGHT = [245, 243, 255], CURSOR = [255, 236, 120], WRONG = [255, 70, 70];
+function drawPhrase(api, h, width) {
+  const cell = 11, gap = cell * 4, y = 150, blink = S.t % 36 < 22;
+  const wordW = (w) => w.length * glyphWidth(cell) - cell;
+  const total = h.targets.reduce((acc, t, i) => acc + wordW(t.word) + (i ? gap : 0), 0);
+  let x = (width - total) / 2;
+  api.box(x - 24, y - 16, total + 48, cell * 9 + 28, 24, 20, 34);
+  h.targets.forEach((t, i) => {
+    if (i) x += gap;
+    const isActive = active(h) === t;
+    for (let c = 0; c < t.word.length; c++) {
+      const done = t.done || c < t.typed, next = isActive && c === t.typed;
+      const col = done ? LIT : next ? (S.miss ? WRONG : blink ? BRIGHT : GHOST) : FAINT;
+      glyph(api, t.word[c], x, y, cell, col);
+      if (next) { api.box(x + cell * .3, y + cell * 8 + cell * .35, cell * 5, cell * .9, ...INK); api.box(x, y + cell * 8, cell * 5, cell * .9, ...(S.miss ? WRONG : CURSOR)); }
+      x += glyphWidth(cell);
+    }
+  });
+}
 export function paint(api) {
   const { width, height } = api.view();
   api.wipe(22, 20, 30);
   for (const h of S.halls) drawHall(api, h);
   const h = current();
-  api.figure(pose(h), { eyes: "dots", mouth: S.miss ? "frown" : "smile", hurt: S.bump > 0 });
+  if (S.smash || S.over) drawShards(api);
+  else api.figure(pose(h), { eyes: "dots", mouth: S.miss || S.bump ? "frown" : "smile", hurt: S.bump > 0 });
   // the shot: a line from the hand to the switch, in front
   if (S.shot) {
     const a = api.project(...S.shot.from), b = api.project(...S.shot.to);
@@ -289,32 +414,23 @@ export function paint(api) {
     api.box(0, 0, width, t, ...f.col); api.box(0, height - t, width, t, ...f.col);
     api.box(0, 0, t, height, ...f.col); api.box(width - t, 0, t, height, ...f.col);
   }
-  // the phrase in block letters across the top: typed letters lit, the next
-  // one underlined, the rest waiting; the active word brightest
-  const cell = 11, gap = cell * 4, y = 150;
-  const wordW = (w) => w.length * glyphWidth(cell) - cell;
-  const total = h.targets.reduce((acc, t, i) => acc + wordW(t.word) + (i ? gap : 0), 0);
-  let x = (width - total) / 2;
-  h.targets.forEach((t, i) => {
-    if (i) x += gap;
-    const isActive = active(h) === t;
-    for (let c = 0; c < t.word.length; c++) {
-      const done = t.done || c < t.typed, next = isActive && c === t.typed;
-      const col = done ? [120, 255, 150] : next ? (S.miss ? [255, 70, 70] : [255, 236, 120]) : isActive ? [235, 235, 245] : [110, 108, 120];
-      drawGlyph(api, t.word[c], x, y, cell, ...col);
-      if (next) api.box(x, y + cell * 8, cell * 5, cell * .8, ...col);
-      x += glyphWidth(cell);
-    }
-  });
+  if (!S.over) drawPhrase(api, h, width);
   // hud: doors, hearts, accuracy
   const acc = S.typed + S.wrong ? Math.round(100 * S.typed / (S.typed + S.wrong)) : 100;
-  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : "") + "   pace " + pace(h).toFixed(1), 40, 36, 34, 255, 236, 120);
-  api.write("♥".repeat(Math.max(0, S.hearts)), 40, 80, 34, 255, 90, 110);
-  api.write(acc + "% letters", width - 40 - api.textWidth(acc + "% letters", 30), 40, 30, 180, 180, 200);
-  if (S.over) {
-    api.box(0, height / 2 - 120, width, 240, 20, 16, 28);
-    const msg = "the door wins. " + S.run + " doors. space to go again";
-    api.write(msg, (width - api.textWidth(msg, 54)) / 2, height / 2 - 30, 54, 255, 236, 120);
+  write(api, "door " + (S.run + 1) + (S.best > S.run ? " · best " + S.best : "") + " · pace " + pace(h).toFixed(1), 40, 34, [255, 236, 120]);
+  write(api, "♥".repeat(Math.max(0, S.hearts)) + "♡".repeat(Math.max(0, 3 - S.hearts)), 40, 72, [255, 90, 110]);
+  write(api, acc + "% letters", width - 40 - api.textWidth(acc + "% letters", TYPE), 34, [180, 180, 200]);
+  // the run is over: the pieces lie where they fell and the reading comes
+  // in over them, at once — headline in block letters, the score under it,
+  // and a blinking line that says how to go again
+  if (S.over && S.dead >= 8) {
+    const top = height * .18, cell = 9, line = "the door wins", lw = line.length * glyphWidth(cell) - cell;
+    api.box(0, top, width, 250, 20, 16, 28);
+    let x = (width - lw) / 2;
+    for (const ch of line) { if (ch !== " ") glyph(api, ch, x, top + 34, cell, [255, 236, 120]); x += glyphWidth(cell); }
+    const score = S.run + (S.run === 1 ? " door" : " doors") + " · best " + S.best + " · " + acc + "% letters";
+    write(api, score, centre(api, score, width), top + 130, [235, 235, 245]);
+    if (S.t % 40 < 26) { const again = "space to go again"; write(api, again, centre(api, again, width), top + 182, [150, 255, 170]); }
   }
 }
 globalThis.__typist = S;
