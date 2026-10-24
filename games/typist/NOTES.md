@@ -21,7 +21,12 @@ active word:
 - every switch down lifts the door; reach a shut door and the hero bumps it
   and loses a heart. The word keeps what you typed — a bump never takes
   your letters. Three bumps end the run (Space restarts);
-- each word, once typed, is spoken back in @jeffrey's voice.
+- each correct letter sounds its notepat note (c d e f g a b are themselves,
+  v s w r q the sharps, h–n the octave up with t y u o p its sharps, z x
+  below) and flashes yellow; a wrong one flashes red with a two-note fall;
+- the speech arrives as you type: a nonsense word's syllable is heard in
+  @jeffrey's voice the moment its vowel lands, a real word is spoken whole at
+  the shot; a finished word flashes light green.
 
 ## The doors
 
@@ -44,13 +49,20 @@ Every hall starts gently and ramps to full pace over its first third, so a
 new kind of door is not also a wall of speed. Once a door's words are done
 the hero sprints through it.
 
+## Beat
+
+A kit under the hall, from the engine's drums: kick on one and three, snare
+on two and four, hats on the eighths. Its tempo is `96 + pace × 12` bpm, so
+it counts in with the hall and climbs with the run; the sprint through a
+cleared door adds double-time hats. It stops when the run ends.
+
 ## Voice
 
 `voice/*.mp3` are pre-rendered: one clip per real word and one per
 consonant-vowel syllable spelt as it sounds (`bah beh bee boh boo …`),
 ElevenLabs v4 in the jeffrey-pvc voice, trimmed so they butt together.
-`lib/voice.mjs` schedules a word's syllables back to back on an
-AudioContext, so any word the generator makes plays with no round trip.
+`lib/voice.mjs` schedules clips back to back on an AudioContext — one
+syllable as it is typed, or a whole word —, so any word the generator makes plays with no round trip.
 Missing clips mean silence, not errors. Rendered by
 `xbox/tools/oskiewar-typist-voice.mjs` in the oskiewar vault.
 

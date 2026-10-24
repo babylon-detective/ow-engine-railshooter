@@ -13,7 +13,22 @@
 // run along +z. See NOTES.md.
 
 import { drawGlyph, glyphWidth } from "./lib/bigtext.mjs";
-import { speak, warm, partsOf } from "./lib/voice.mjs";
+import { speak, speakClips, warm, partsOf, clipName } from "./lib/voice.mjs";
+
+// Every letter is a note on notepat's keyboard (disks/notepat.mjs): the
+// white keys c d e f g a b are themselves, v s w r q the sharps between
+// them, h i j k l m n the octave above with t y u o p its sharps, z and x
+// the a# and b below. Semitones from middle C; a correct letter sounds its
+// note, quietly, under the speech.
+const NOTE = { c: 0, v: 1, d: 2, s: 3, e: 4, f: 5, w: 6, g: 7, r: 8, a: 9, q: 10, b: 11,
+  h: 12, t: 13, i: 14, y: 15, j: 16, k: 17, u: 18, l: 19, o: 20, m: 21, p: 22, n: 23, z: -2, x: -1 };
+const hz = (letter) => 261.63 * 2 ** ((NOTE[letter] ?? 0) / 12);
+
+// Screen flashes, with no alpha to fade: a whole-screen wash for the first
+// two ticks, then bands along the edges that thin out. Yellow for a letter,
+// light green for a word, red for a wrong letter or a bump.
+const YELLOW = [255, 236, 120], GREEN = [150, 255, 170], RED = [220, 30, 40];
+function flash(col, life) { S.fx.push({ col, life, max: life }); }
 
 const FLOOR = 1800, HALF = 300, HEIGHT = 500, HALL = 1500;
 const EYE = FLOOR - 230, AHEAD = 230;
@@ -33,8 +48,8 @@ function pace(h = current()) {
   return Math.max(1.4, Math.min(6, 1.9 + doors + skill)) * solo * ease;
 }
 const SPRINT = 4.2;
-const S = { t: 0, s: 0, halls: [], run: 0, best: 0, hearts: 3, flash: 0, red: 0, miss: 0, prev: new Set(),
-  shot: null, bump: 0, dead: 0, typed: 0, wrong: 0, over: false };
+const S = { t: 0, s: 0, halls: [], run: 0, best: 0, hearts: 3, miss: 0, prev: new Set(),
+  shot: null, bump: 0, dead: 0, typed: 0, wrong: 0, over: false, beat: 0, api: null, fx: [], cues: [] };
 
 // Words: real short ones on even halls, syllable nonsense ("boyu popo rebo")
 // on odd ones — three action events, in letters.
@@ -73,7 +88,7 @@ function hall(index, z0) {
 
 function restart() {
   S.halls = [hall(0, 0), hall(1, HALL)];
-  Object.assign(S, { s: 0, run: 0, hearts: 3, dead: 0, typed: 0, wrong: 0, over: false, bump: 0, shot: null });
+  Object.assign(S, { s: 0, run: 0, hearts: 3, dead: 0, typed: 0, wrong: 0, over: false, bump: 0, shot: null, beat: 0, fx: [], cues: [] });
 }
 export function boot(api) { S.api = api; api.cursor("none"); restart(); }
 
@@ -94,22 +109,31 @@ export function sim(api) {
     const letter = m[1].toLowerCase();
     if (letter === tg.word[tg.typed]) {
       tg.typed++; S.typed++;
-      api.tone(440 + tg.typed * 60, .05);
+      api.tone(hz(letter), .09);
+      flash(YELLOW, 5);
+      // the speech arrives as you type: a nonsense word's syllable is heard
+      // the moment its vowel lands; a real word is spoken whole at the shot
+      if (!tg.real && tg.typed % 2 === 0) speakClips(api, [clipName(tg.word.slice(tg.typed - 2, tg.typed))]);
       if (tg.typed === tg.word.length) shoot(api, h, tg);
     } else {
-      // a wrong letter: only partly there — one letter of progress lost
+      // a wrong letter: only partly there — one letter of progress lost,
+      // a red flash and a two-note fall
       tg.typed = Math.max(0, tg.typed - 1); S.wrong++; S.miss = 8;
-      api.drum("block", .9, 0);
+      flash(RED, 8);
+      api.drum("block", .7, 0); api.tone(hz("x") / 2, .1);
+      S.cues.push({ at: S.t + 4, tone: hz("z") / 4, seconds: .16 });
     }
   }
   S.prev = keys;
+  S.cues = S.cues.filter((c) => { if (c.at > S.t) return true; api.tone(c.tone, c.seconds); return false; });
+  for (const f of S.fx) f.life--;
+  S.fx = S.fx.filter((f) => f.life > 0);
   if (S.shot) { S.shot.life--; if (S.shot.life <= 0) S.shot = null; }
-  if (S.flash > 0) S.flash--;
-  if (S.red > 0) S.red--;
   if (S.miss > 0) S.miss--;
   if (S.bump > 0) S.bump--;
   for (const t of h.targets) if (t.hit > 0) t.hit--;
   if (S.over) return;
+  beat(api, h);
   if (h.open) h.open = Math.min(1, h.open + .035);
   const stopAt = h.z1 - 150;
   // words done: sprint through the door; otherwise glide at the run's pace
@@ -117,7 +141,7 @@ export function sim(api) {
   if (h.open || S.s < stopAt) S.s = Math.min(h.open ? S.s + step : stopAt, S.s + step);
   else if (!S.bump) {
     // At a shut door with words left: the hero bumps it. Three bumps end the run.
-    S.bump = 70; S.hearts--; S.red = 18; api.drum("body-impact", 1.6, 0);
+    S.bump = 70; S.hearts--; flash(RED, 18); api.drum("body-impact", 1.6, 0);
     if (S.hearts <= 0) { S.over = true; api.drum("gong", 1, 0); }
   }
   // Through an open door: the hall behind is done, a new one is laid ahead.
@@ -129,11 +153,29 @@ export function sim(api) {
   api.camera({ position: [90, EYE - 40, S.s - 420], target: [-10, EYE + 70, S.s + 600], fov: 74 });
 }
 
+// ——— the beat: a kit under the hall, keeping time with the glide ———
+// Kick on one and three, snare on two and four, hats on the eighths; the
+// tempo follows the pace, so a hall that eases in also counts in, and the
+// sprint through a cleared door rides double-time hats. Quiet enough that
+// the letter tones sit on top. S.beat counts sixteenths; a step plays when
+// the count crosses a whole number.
+const EIGHTHS = [["kick", .75, 0], ["hat", .22, -.3], ["snare", .45, 0], ["hat", .22, .3], ["kick", .75, 0], ["hat", .22, -.3], ["snare", .45, 0], ["hat", .3, .3]];
+function beat(api, h) {
+  const bpm = 96 + pace(h) * 12, sprinting = h.open > 0 && h.open < 1;
+  const was = Math.floor(S.beat);
+  S.beat += bpm / 900;   // sixteenths per tick, at sixty ticks a second
+  const now = Math.floor(S.beat);
+  if (now === was) return;
+  const step = now % 16;
+  if (step % 2 === 0) { const [name, amount, pan] = EIGHTHS[step / 2]; api.drum(name, amount, pan); }
+  else if (sprinting) api.drum("hat", .16, step % 4 === 1 ? .5 : -.5);
+}
+
 function shoot(api, h, tg) {
-  tg.done = true; tg.hit = 16; S.flash = 4;
+  tg.done = true; tg.hit = 16; flash(GREEN, 10);
   S.shot = { life: 10, from: hand(h, tg), to: [tg.x, tg.y, tg.z - 2] };
   api.drum("kick", 1.4, 0); api.drum("clap", 1, 0); api.drum("glass-shard", 1.2, .3);
-  speak(api, tg.word, tg.real);
+  if (tg.real) speak(api, tg.word, true);
   h.at++;
   if (h.targets.every((t) => t.done)) { h.open = .01; api.drum("gong", .5, 0); }
 }
@@ -241,8 +283,12 @@ export function paint(api) {
     const a = api.project(...S.shot.from), b = api.project(...S.shot.to);
     if (!a.behind && !b.behind) api.line(a.x, a.y, b.x, b.y, 6, 255, 240, 160);
   }
-  if (S.flash > 0) api.box(0, 0, width, height, 255, 250, 230);
-  if (S.red > 0) api.box(0, 0, width, height, 200, 24, 30);
+  for (const f of S.fx) {
+    if (f.life > f.max - 2) { api.box(0, 0, width, height, ...f.col); continue; }
+    const t = 28 * f.life / f.max;
+    api.box(0, 0, width, t, ...f.col); api.box(0, height - t, width, t, ...f.col);
+    api.box(0, 0, t, height, ...f.col); api.box(width - t, 0, t, height, ...f.col);
+  }
   // the phrase in block letters across the top: typed letters lit, the next
   // one underlined, the rest waiting; the active word brightest
   const cell = 11, gap = cell * 4, y = 150;

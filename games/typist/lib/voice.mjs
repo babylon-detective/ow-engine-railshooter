@@ -29,10 +29,13 @@ function buffer(api, name) {
 export function warm(api, names) { for (const name of names) buffer(api, name); }
 
 const OVERLAP = .035;   // syllables run together a hair, like one word
-export async function speak(api, word, real) {
+// A whole word: its clips back to back.
+export const speak = (api, word, real) => speakClips(api, partsOf(word, real));
+// Any run of clips — one syllable as its vowel is typed, or a whole word.
+export async function speakClips(api, names) {
   if (!context()) return;
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
-  const parts = await Promise.all(partsOf(word, real).map((name) => buffer(api, name)));
+  const parts = await Promise.all(names.map((name) => buffer(api, name)));
   if (!parts.length || parts.some((b) => !b)) return;
   let at = ctx.currentTime + .09;
   for (const b of parts) {
