@@ -18,17 +18,41 @@ active word:
   switch drops, the hero turns back and the next word lights up;
 - a wrong letter costs one letter of progress and a frown — you only partly
   got there;
-- every switch down lifts the door; reach a shut door and the hero bumps it,
-  loses a heart and the word resets. Three bumps end the run (Space restarts).
+- every switch down lifts the door; reach a shut door and the hero bumps it
+  and loses a heart. The word keeps what you typed — a bump never takes
+  your letters. Three bumps end the run (Space restarts);
+- each word, once typed, is spoken back in @jeffrey's voice.
 
-Even halls use short real words; odd halls use two-syllable nonsense
-("boyu popo rebo") — three action events in letters.
+## The doors
+
+One syllable is a real short word ("sun", "door"); two and three are
+consonant-vowel nonsense ("boyu", "popo", "rebo") — action events in letters.
+
+| door | words |
+| --- | --- |
+| 1–2 | one word, one then two syllables |
+| 3–4 | a single three-syllable word, at a faster glide (one word is less to type) |
+| 5–6 | two words of mixed length (1–3 syllables) |
+| 7–8 | three words of mixed length |
+| 9+ | three words of three syllables each |
 
 ## Pace
 
-The glide speeds up with every door cleared, more when accuracy is over
-90%, less under 75%. Once a door's words are done the hero sprints through
-it. From the sixth door the nonsense words grow to three syllables.
+The glide speeds up with every door cleared (less past the eighth, where the
+all-three combos begin), more when accuracy is over 90%, less under 75%.
+Every hall starts gently and ramps to full pace over its first third, so a
+new kind of door is not also a wall of speed. Once a door's words are done
+the hero sprints through it.
+
+## Voice
+
+`voice/*.mp3` are pre-rendered: one clip per real word and one per
+consonant-vowel syllable spelt as it sounds (`bah beh bee boh boo …`),
+ElevenLabs v3 in the jeffrey-pvc voice, trimmed so they butt together.
+`lib/voice.mjs` schedules a word's syllables back to back on an
+AudioContext, so any word the generator makes plays with no round trip.
+Missing clips mean silence, not errors. Rendered by
+`xbox/tools/oskiewar-typist-voice.mjs` in the oskiewar vault.
 
 ## What it shows
 
@@ -37,6 +61,7 @@ it. From the sixth door the nonsense words grow to three syllables.
   body turned about the pelvis, the arm blended from rest to the aim line.
 - `api.project` to draw the shot as a 2D line between two world points.
 - `api.textWidth` to lay the phrase out letter by letter.
+- `api.asset` + an AudioContext for clip playback with no engine audio API.
 
 ## Next
 

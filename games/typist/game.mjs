@@ -5,21 +5,32 @@
 // on the last letter the arm comes up, the shot lands, the switch drops, and
 // the hero turns back. A wrong letter costs one letter of progress: you only
 // partially get there. Reach the door with a word unfinished and the hero
-// bumps it; three bumps end the run. One word at a time, nothing to aim.
+// bumps it; three bumps end the run, but the word keeps what you typed — a
+// bump costs a heart, never your letters (@jeffrey, 2026-10-23). Each word,
+// once typed, is spoken back in @jeffrey's voice (lib/voice.mjs). One word
+// at a time, nothing to aim.
 // World units are the engine's: y grows DOWN, the floor is at 1800. Halls
 // run along +z. See NOTES.md.
 
 import { drawGlyph, glyphWidth } from "./lib/bigtext.mjs";
+import { speak, warm, partsOf } from "./lib/voice.mjs";
 
 const FLOOR = 1800, HALF = 300, HEIGHT = 500, HALL = 1500;
 const EYE = FLOOR - 230, AHEAD = 230;
 // The pace climbs with every door and with a clean run: doors cleared add
-// to it, accuracy over 90% adds more, under 75% eases off. The hero sprints
-// once a door's words are done.
-function pace() {
+// to it (less past the eighth, where the all-three-syllable combos begin),
+// accuracy over 90% adds more, under 75% eases off. A hall with a single
+// long word glides faster — one word is less to type — and every hall
+// starts gently, ramping to full pace over its first third, so a new kind of
+// door is not also a wall of speed. The hero sprints once a door's words
+// are done.
+function pace(h = current()) {
   const acc = S.typed + S.wrong ? S.typed / (S.typed + S.wrong) : 1;
   const skill = acc > .9 ? (acc - .9) * 8 : acc < .75 ? -(.75 - acc) * 4 : 0;
-  return Math.max(1.4, Math.min(6, 1.9 + S.run * .28 + skill));
+  const doors = Math.min(S.run, 7) * .28 + Math.max(0, S.run - 7) * .12;
+  const solo = h && h.targets.length === 1 && h.targets[0].word.length >= 6 ? 1.35 : 1;
+  const ease = h ? .6 + .4 * Math.min(1, Math.max(0, S.s - h.z0) / (HALL / 3)) : 1;
+  return Math.max(1.4, Math.min(6, 1.9 + doors + skill)) * solo * ease;
 }
 const SPRINT = 4.2;
 const S = { t: 0, s: 0, halls: [], run: 0, best: 0, hearts: 3, flash: 0, red: 0, miss: 0, prev: new Set(),
@@ -34,20 +45,29 @@ let seed = 7;
 const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 const pick = (list) => list[(rnd() * list.length) | 0];
 const syllables = (n) => { let w = ""; for (let i = 0; i < n; i++) w += pick(C) + pick(V); return w; };
+// A word by syllable count: one syllable is a real short word, two and
+// three are nonsense. The doors, in order (@jeffrey, 2026-10-23: "move
+// faster on single 3 syllable words, then mixed 1 and 2 and 3 syllable,
+// before combos of all three syllables"):
+//   1-2  one word, one then two syllables — learn the keys
+//   3-4  a single three-syllable word, at the faster solo glide
+//   5-6  two words of mixed length;  7-8  three words of mixed length
+//   9+   three words of three syllables each
+const word = (syl) => syl === 1 ? pick(REAL) : syllables(syl);
 function phraseFor(index) {
-  const words = index === 0 ? 1 : Math.min(3, 1 + ((index + 1) >> 1));
-  const out = [];
-  // longer syllable words from the sixth door on
-  for (let i = 0; i < words; i++) out.push(index % 2 ? syllables(index >= 6 ? 3 : 2) : pick(REAL));
-  return out;
+  if (index < 2) return [word(index + 1)];
+  if (index < 4) return [word(3)];
+  if (index < 8) return Array.from({ length: index < 6 ? 2 : 3 }, () => word(1 + ((rnd() * 3) | 0)));
+  return [word(3), word(3), word(3)];
 }
 
 // A hall: from z0 to z0 + HALL, its door at the far end, a switch per word.
 function hall(index, z0) {
   const words = phraseFor(index);
   const n = words.length, size = 110;
-  const targets = words.map((word, i) => ({ word, typed: 0, done: false, hit: 0,
+  const targets = words.map((word, i) => ({ word, real: REAL.includes(word), typed: 0, done: false, hit: 0,
     x: (i - (n - 1) / 2) * 190, y: FLOOR - HEIGHT * .55, z: z0 + HALL, w: size, h: size }));
+  if (S.api) warm(S.api, targets.flatMap((t) => partsOf(t.word, t.real)));
   return { index, z0, z1: z0 + HALL, open: 0, targets, at: 0 };
 }
 
@@ -55,7 +75,7 @@ function restart() {
   S.halls = [hall(0, 0), hall(1, HALL)];
   Object.assign(S, { s: 0, run: 0, hearts: 3, dead: 0, typed: 0, wrong: 0, over: false, bump: 0, shot: null });
 }
-export function boot(api) { api.cursor("none"); restart(); }
+export function boot(api) { S.api = api; api.cursor("none"); restart(); }
 
 const current = () => S.halls[0];
 const active = (h) => h.targets[h.at] || null;
@@ -93,13 +113,12 @@ export function sim(api) {
   if (h.open) h.open = Math.min(1, h.open + .035);
   const stopAt = h.z1 - 150;
   // words done: sprint through the door; otherwise glide at the run's pace
-  const step = h.open ? pace() * SPRINT : pace();
+  const step = h.open ? pace(h) * SPRINT : pace(h);
   if (h.open || S.s < stopAt) S.s = Math.min(h.open ? S.s + step : stopAt, S.s + step);
   else if (!S.bump) {
     // At a shut door with words left: the hero bumps it. Three bumps end the run.
     S.bump = 70; S.hearts--; S.red = 18; api.drum("body-impact", 1.6, 0);
     if (S.hearts <= 0) { S.over = true; api.drum("gong", 1, 0); }
-    else { tg && (tg.typed = 0); }
   }
   // Through an open door: the hall behind is done, a new one is laid ahead.
   if (S.s > h.z1 + 60 && h.open) {
@@ -114,6 +133,7 @@ function shoot(api, h, tg) {
   tg.done = true; tg.hit = 16; S.flash = 4;
   S.shot = { life: 10, from: hand(h, tg), to: [tg.x, tg.y, tg.z - 2] };
   api.drum("kick", 1.4, 0); api.drum("clap", 1, 0); api.drum("glass-shard", 1.2, .3);
+  speak(api, tg.word, tg.real);
   h.at++;
   if (h.targets.every((t) => t.done)) { h.open = .01; api.drum("gong", .5, 0); }
 }
@@ -242,7 +262,7 @@ export function paint(api) {
   });
   // hud: doors, hearts, accuracy
   const acc = S.typed + S.wrong ? Math.round(100 * S.typed / (S.typed + S.wrong)) : 100;
-  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : "") + "   pace " + pace().toFixed(1), 40, 36, 34, 255, 236, 120);
+  api.write("door " + (S.run + 1) + (S.best > S.run ? "   best " + S.best : "") + "   pace " + pace(h).toFixed(1), 40, 36, 34, 255, 236, 120);
   api.write("♥".repeat(Math.max(0, S.hearts)), 40, 80, 34, 255, 90, 110);
   api.write(acc + "% letters", width - 40 - api.textWidth(acc + "% letters", 30), 40, 30, 180, 180, 200);
   if (S.over) {

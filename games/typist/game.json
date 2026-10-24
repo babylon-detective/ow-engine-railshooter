@@ -5,5 +5,5 @@
   "description": "A typing rail shooter. Each door has a word per switch; type it and the hero turns, shoots the switch and turns back. Every letter is a sub-action, so a wrong one only gets you part of the way.",
   "mode": "own",
   "entry": "game.mjs",
-  "engine": 453
+  "engine": 454
 }
