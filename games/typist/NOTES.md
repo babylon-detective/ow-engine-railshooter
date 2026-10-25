@@ -18,14 +18,15 @@ active word:
   switch drops, the hero turns back and the next word lights up;
 - a wrong letter costs one letter of progress and a frown — you only partly
   got there;
-- every switch down lifts the door; reach a shut door and the hero smashes
-  into it and breaks apart — every limb a shard, plus chips, bouncing off
-  the door and skidding along the floor while the camera cuts back. With a
-  heart left the shards are drawn back together on a hero standing a way
-  down the hall and the glide goes on; the word keeps what you typed — a
-  smash costs a heart, never your letters. The third smash leaves the pieces
-  where they fell under "the door wins" (Space or Enter go again at once,
-  any letter after a moment);
+- the last switch down, the hero long jumps from wherever the word was
+  finished, in one arc through the door (which lifts under them) to a
+  landing in the next hall — whose word is live from take-off, so a run is
+  continuous typing with no walk to the door between puzzles;
+- reach a shut door and the hero smashes into it and breaks apart — every
+  limb a shard, plus chips, bouncing off the door and skidding along the
+  floor while the camera cuts back. One death: the pieces lie where they
+  fell under "smashed" (Space or Enter go again at once, any letter after a
+  moment);
 - the phrase sits on a dark plate in block letters: typed letters lit green,
   the one to type now a ghost that always blinks with a cursor under it,
   the letters after it fainter still; the hud is one size (28, as
@@ -56,13 +57,13 @@ The glide speeds up with every door cleared (less past the eighth, where the
 all-three combos begin), more when accuracy is over 90%, less under 75%.
 Every hall starts gently and ramps to full pace over its first third, so a
 new kind of door is not also a wall of speed. Once a door's words are done
-the hero sprints through it.
+the hero jumps it: 10–26 ticks by distance, higher from farther back.
 
 ## Beat
 
 A kit under the hall, from the engine's drums: kick on one and three, snare
 on two and four, hats on the eighths. Its tempo is `96 + pace × 12` bpm, so
-it counts in with the hall and climbs with the run; the sprint through a
+it counts in with the hall and climbs with the run; the leap through a
 cleared door adds double-time hats. It stops when the run ends.
 
 ## Voice
