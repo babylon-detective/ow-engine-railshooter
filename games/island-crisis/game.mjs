@@ -3,8 +3,8 @@
 // It opens indoors: a hallway that teaches the four-way camera (Q / E), then
 // a hangar of screen-sized targets, then the five-biome island, where M lifts
 // the camera into a map to choose the next pathway. See NOTES.md.
-import { buildWorld, BIOMES, biomeWeights, biomeAt, groundAt, drawTerrain, drawScenery } from './lib/world.mjs';
-import { Renderer, makeCamera, project } from './lib/render.mjs';
+import { buildWorld, BIOMES, biomeWeights, biomeAt, groundAt, drawTerrain, drawScenery, setLight } from './lib/world.mjs';
+import { Scene, makeCamera, project } from './lib/render.mjs';
 import { installInput, readInput } from './lib/input.mjs';
 import * as Overlay from './lib/overlay.mjs';
 import * as Rail from './lib/rail.mjs';
@@ -12,7 +12,7 @@ import * as Combat from './lib/combat.mjs';
 import * as Facility from './lib/facility.mjs';
 import * as Title from './lib/title.mjs';
 import * as Hud from './lib/hud.mjs';
-import * as M from './lib/mesh.mjs';
+import { drawRunner } from './lib/runner.mjs';
 import { bigWidth, bigWrite } from './lib/bigtext.mjs';
 import { clamp, lerp, angleLerp } from './lib/util.mjs';
 import { motionState, stepMotion, railAdvance } from './lib/motion.mjs';
@@ -28,7 +28,7 @@ const INDOOR = { hall: { bg: [10, 12, 22], fog: [14, 16, 28], far: 6500, fogStar
   hangar: { bg: [16, 20, 32], fog: [22, 26, 40], far: 9000, fogStart: 3600 } };
 const SAVE_KEY = 'island-crisis:save';
 
-const R = new Renderer();
+const scene = new Scene();
 const S = { mode: 'title', t: 0, cam: null };
 let prevDown = new Set();
 
@@ -92,14 +92,34 @@ function enterStage(api, stage) {
   Overlay.flash([255, 255, 240], stage === 'island' ? .95 : .5, stage === 'island' ? 900 : 400);
 }
 
+// Each enemy's object as written is the hallway's and the jungle's; the other
+// biomes get a recoloured copy, the same source with its body `def`s swapped.
+function defineSkins(api) {
+  for (const name of Combat.SKINNED) {
+    fetch(api.asset('objects/' + name + '.lisp')).then(r => {
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.text();
+    }).then(source => {
+      BIOMES.forEach((b, i) => {
+        if (!i) return;
+        const [r, g, bl] = b.enemy;
+        api.defineObject(name + '-' + i, source.replace(/def cr \d+\s+def cg \d+\s+def cb \d+/, `def cr ${r}\ndef cg ${g}\ndef cb ${bl}`));
+        Combat.skins.add(name + '-' + i);
+      });
+    }).catch(error => console.error('[island-crisis] biome colours for ' + name + ' failed; drawing the jungle colour', error));
+  }
+}
+
 export function boot(api) {
   installInput();
   installOverlay();
+  setLight(api.light());
+  defineSkins(api);
   buildWorld();
   Facility.buildFacility();
   toTitle();
   // A handle for poking at the game from the console while developing.
-  if (globalThis.location?.hostname === 'localhost') globalThis.__islandCrisis = S;
+  if (globalThis.location?.hostname === 'localhost') { globalThis.__islandCrisis = S; globalThis.__icApi = api; globalThis.__icScene = scene; }
 }
 const installOverlay = () => Overlay.installOverlay();
 
@@ -476,57 +496,9 @@ function cursorMode() {
 }
 
 // ── Drawing ──────────────────────────────────────────────────────────────
-function drawPlayer(fr) {
-  const p = S.player;
+function drawPlayer(api, fr) {
   if (S.mode === 'over') return;
-  const P = Rail.toWorld(fr, p.f, p.s, p.u);
-  const g = S.stage === 'island' ? groundAt(P[0], P[2]) : 0;
-  if (g < P[1] + 40) {
-    const r = 46 * clamp(1 - (P[1] - g) / 900, .35, 1);
-    R.triW(P[0] - r, g + 4, P[2], P[0], g + 4, P[2] + r, P[0] + r, g + 4, P[2], 20, 24, 28, 8);
-    R.triW(P[0] - r, g + 4, P[2], P[0] + r, g + 4, P[2], P[0], g + 4, P[2] - r, 20, 24, 28, 8);
-  }
-  if (p.inv > 0 && (S.t >> 2) % 2) return;
-  const run = S.t * .32, air = clamp((p.y - p.groundY) / 60, 0, 1);
-  const sw = Math.sin(run) * .75 * (1 - air * .75);
-  let B = M.yawBasis(P, S.heading);
-  const base = 0;
-  const faces = [];
-  const jacket = [214, 52, 64], pants = [40, 46, 76], skin = [240, 198, 160], dark = [34, 36, 48];
-  for (const side of [-1, 1]) {
-    const L = M.pitchAround(B, side * 14, base + 70, 0, side * sw - air * .45);
-    M.box(faces, L, 0, -33, 0, 9, 33, 10, pants);
-    M.box(faces, L, 0, -66, 5, 10, 6, 14, dark);
-  }
-  M.box(faces, B, 0, base + 104, 0, 25, 34, 15, jacket, [240, 90, 90]);
-  M.box(faces, B, 0, base + 104, -24, 18, 22, 9, dark);
-  M.box(faces, B, 0, base + 153, 2, 15, 15, 15, skin);
-  M.box(faces, B, 0, base + 166, -2, 17, 5, 17, [40, 30, 30]);
-  M.box(faces, B, 0, base + 154, 16, 12, 5, 2, [90, 240, 255], null, false);
-  const arm = M.pitchAround(B, -30, base + 126, 0, -sw * .8);
-  M.box(faces, arm, 0, -30, 0, 7, 30, 7, jacket);
-  const shoulder = M.at(B, 30, base + 124, 0);
-  const cam = S.cam, dirAim = [0, 0, 0];
-  const a = (S.reticle.x - cam.cx) / cam.f, b = (cam.cy - S.reticle.y) / cam.f;
-  for (let k = 0; k < 3; k++) dirAim[k] = cam.pos[k] + (cam.fw[k] + cam.right[k] * a + cam.up[k] * b) * S.aimT - shoulder[k];
-  const G = M.lookBasis(shoulder, dirAim);
-  M.box(faces, G, 0, 0, 38, 8, 8, 40, [70, 76, 92]);
-  M.box(faces, G, 0, -12, 14, 6, 10, 7, dark);
-  R.mesh(faces);
-  if (p.dash > 0 && S.dashDir) {
-    for (let i = 1; i <= 4; i++) {
-      const k = i * 26 * p.dash / 12;
-      const Q = Rail.toWorld(fr, p.f - S.dashDir[0] * k, p.s - S.dashDir[1] * k, p.u + 100 - S.dashDir[2] * k);
-      R.spark(Q[0], Q[1], Q[2], 34 - i * 6, 120, 230, 255, 4);
-    }
-  }
-  const jet = M.at(B, 0, base + 78, -28);
-  if (p.motion === 'hover') R.spark(jet[0], jet[1], jet[2], 18 + Math.sin(S.t * .7) * 5, 90, 220, 255, 6);
-  if (S.muzzle > 0) {
-    const mz = M.at(G, 0, 0, 84);
-    R.spark(mz[0], mz[1], mz[2], 30 + S.muzzle * 12, 255, 255, 220, -10);
-    R.spark(mz[0], mz[1], mz[2], 14 + S.muzzle * 5, 255, 255, 255, -12);
-  }
+  drawRunner(api, scene, S, fr);
 }
 
 function drawOver(api) {
@@ -547,33 +519,31 @@ function drawOver(api) {
 export function paint(api) {
   if (!S.cam) return;
   const cam = S.cam, room = S.mode !== 'title' && INDOOR[S.stage];
-  let sceneryNear = 0;
-  if (S.mode !== 'title' && S.mapE < .1) {
-    const p = S.player, point = project(cam, ...Rail.toWorld(frameNow(), p.f, p.s, p.u + 90));
-    // Cut foreground scenery away before the player, not combat objects,
-    // closed doors, switches or hurdles. Title and map keep the whole scene.
-    sceneryNear = Math.max(0, (point?.z || 0) - 180);
-  }
+  // The runner's chest: what the scenery cutaway keeps in sight. Title and
+  // map keep the whole scene.
+  const p = S.player;
+  const focus = S.mode !== 'title' && S.mapE < .1 ? Rail.toWorld(frameNow(), p.f, p.s, p.u + 90) : null;
   if (room) {
     api.wipe(...room.bg);
-    R.begin(cam, sceneryNear);
-    Facility.draw(R, S, cam);
+    scene.begin(api, cam, focus);
+    Facility.draw(scene, S, cam);
   } else {
-    Hud.background(api, cam, S.sky);
-    R.begin(cam, sceneryNear);
-    drawTerrain(R, cam, S.mapE > .35 ? 2 : 1);
-    drawScenery(R, cam);
+    api.wipe(...S.sky);
+    scene.begin(api, cam, focus);
+    Hud.background(api, scene, cam);
+    drawTerrain(scene, cam, S.mapE > .35 ? 2 : 1);
+    // The flyover sees the most of the island at once: fewer props.
+    drawScenery(scene, cam, S.mode === 'title' ? 100 : undefined);
   }
   if (S.mode !== 'title') {
     const fr = frameNow();
-    drawPlayer(fr);
-    Combat.draw(R, S, fr);
-    R.flush(api);
+    drawPlayer(api, fr);
+    Combat.draw(scene, S, fr);
     if (S.mode === 'play') {
       if (S.mapE > .02) Hud.drawMap(api, S, fr, S.mapE);
       else Hud.drawHud(api, S, fr);
     }
-  } else R.flush(api);
+  }
 
   if (S.mode === 'title') {
     const { items, enabled } = menuItems();

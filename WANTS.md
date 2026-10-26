@@ -54,7 +54,7 @@ reads this to decide what the engine grows next.
 - game: island-crisis
 - what the game would do with it: an aim reticle and menu cursor that follow the pointer at page resolution (like oskiewar's own SVG cursor), plus full-screen flashes for shots, hits and damage.
 - smallest version that would unblock it: `api.cursor(svgOrName)` and an alpha on `api.box`. Meanwhile the game adds its own DOM layer (`lib/overlay.mjs`) over the canvases.
-- Camera visibility: alpha on foreground scenery would let the game fade obstructing meshes; for now it clips decorative geometry just before the player in its software renderer, without hiding gameplay doors, targets or hazards.
+- Camera visibility: alpha on foreground scenery would let the game fade what blocks the runner; for now it leaves out the faces and props that rise into the line of sight to the runner, without hiding doors, targets or hazards.
 
 ## Big text
 - game: island-crisis
@@ -65,3 +65,13 @@ reads this to decide what the engine grows next.
 - game: island-crisis
 - what the game would do with it: combine upright left/right Joy-Cons into one player's move/aim controls, including nonstandard browser layouts, without ZL/ZR also generating fighting-game face-button actions.
 - smallest version that would unblock it: raw controller IDs, mappings and axes/buttons, configurable pairing, and an option to disable trigger aliases in own mode. Meanwhile the game polls the Gamepad API itself and provides saved calibration for unknown layouts.
+
+## Fog on objects (and faces)
+- game: island-crisis
+- what the game would do with it: let island props fade into the distance haze like its fogged terrain faces, instead of popping in at a fixed distance.
+- smallest version that would unblock it: `api.fog({ color, start, end })` applied by the engine to world faces and objects by depth. Meanwhile the game fogs its own faces and leaves props out past most of the fog.
+
+## Where the lens's centre sits
+- game: island-crisis
+- what the game would do with it: keep its own projection (aim rays, HUD arrows, map labels, culling) exactly on top of the engine's.
+- smallest version that would unblock it: say in GAME-SPEC where `api.camera` puts the target on the stage (it is ~29 units above the middle at 1080), or return it from `api.camera()`. Meanwhile the game measures it each frame with `api.project(target)`.

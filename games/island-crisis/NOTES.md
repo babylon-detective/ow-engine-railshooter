@@ -79,11 +79,55 @@ nearest eligible target. With no targets the mode stays red but has no lock.
 Toggle back to free aim for precise switch shots. Mouse motion does not
 pull an auto-locked reticle away from its target.
 
-Foreground terrain and decorative meshes use a camera-space cutaway plane
-just before the player to avoid scenery covering the view in tight spaces.
-It is visual only: enemies, player, hurdles, closed doors and switches are
-not clipped, and auto aim cannot acquire enemies through closed doors.
-The title flyover and overhead map retain the full scenery.
+The scenery cutaway keeps the runner in sight: terrain, walls and props
+nearer the lens than the runner that rise into the line of sight from the
+camera to it (and lie close to that line) are left out. Ground below the
+line stays. It is visual only: enemies, the runner, hurdles, doors and
+switches are never cut, and auto aim cannot acquire enemies through closed
+doors. The title flyover and overhead map keep all the scenery.
+
+## Drawing: the engine's 3D
+
+Since engine 455 everything 3D goes through the engine: `api.camera`,
+`api.face`, `api.object` and `api.figure` (GAME-SPEC.md → The world,
+Objects, Figures; OBJECT-DIALECT.md). There is no mesh code in the game.
+
+- **Coordinates.** The game's world is y-up (terrain, rails, the fight);
+  the engine's is y-down. Every point crosses as (x, −y, z), which keeps
+  screen-right right and makes an object's "z to the right" our right.
+  A rail heading θ is forward (sin θ, 0, cos θ).
+- **`lib/render.mjs`** keeps the camera's math on our side for culling,
+  fog, aim rays and the HUD, and tells `api.camera` the same lens (fov
+  across the stage). The engine draws its centre a little above the stage's
+  middle, so each frame `Scene.begin` measures it with `api.project` and
+  our projection follows; they agree to the pixel. `Scene` sends
+  triangles (`tri`, `quad` — one-sided with a normal, fogged by depth),
+  camera-facing `spark`s, and `object`s placed by a 12-number frame.
+- **World faces:** terrain (two per cell, lit by the engine's sun from
+  `api.light()`), the open sea around the grid out to the horizon, the
+  rooms' floors, walls and ceilings, doors, shadows, sparks, bullets. A
+  world face carries one depth, so nothing is laid on another: floors are
+  cut around their stripes, walls into bands round their light strips.
+- **Objects (`objects/*.lisp`):** island props `palm jungle-tree cactus rock
+  mesa tower spire crystal pine snowrock arch`; set pieces `gate-frame fin
+  hurdle crate rib beam switch`; enemies `drone charger turret shield
+  gunship`; the runner's `blaster`. Organic things are lit forms (tube,
+  revolve, orb, capsule under grain / mottle / rough, no face splits);
+  built things are flat and inked (slab under outline), the engine's style.
+- **Switches as state.** `hurt` flashes an enemy red, `turbo` white (hit and
+  dying frames, a charger's wind-up, a shield's charge, a lit door lamp, a
+  hit switch); both bake, so a flash costs nothing. A turret's barrel reads
+  `pitch`; a shield's and gunship's cores pulse with `time`.
+- **Biome colours.** Drone, charger, turret and shield keep their body
+  colour in three `def`s; boot fetches each source and `defineObject`s a
+  copy per biome (`drone-1` … `shield-4`) with them swapped, as the kennel's
+  grey hound is made.
+- **The runner** is the engine's fighter (`api.figure`), posed in
+  `lib/runner.mjs` from the run cycle, jump tuck, hover and the gun arm's
+  aim, with `blaster` in the right fist.
+- **Budget.** Props are the costly part of a frame: the nearest 140 are
+  drawn (100 on the title flyover), none past most of the fog. Headless
+  (software GL) the island runs at 60 fps, the flyover 43–47.
 
 ## Controls
 
@@ -170,8 +214,10 @@ does the screen flashes with CSS opacity (see WANTS.md).
 - `lib/overlay.mjs`: SVG cursor and flash layer
 - `lib/combat.mjs`: enemies (drone, charger, turret, slab, gunship), tap fire, hits
 - `lib/hud.mjs`: HUD, nudges and keycaps, compass, map overlay
-- `lib/world.mjs`, `lib/rail.mjs`: island, biomes, rail network, routes
-- `lib/render.mjs`, `lib/mesh.mjs`: software 3D (clip, painter's sort, fog)
+- `lib/world.mjs`, `lib/rail.mjs`: island, biomes, rail network, routes; terrain faces, prop placements
+- `lib/render.mjs`: the scene: camera math, `api.camera`, faces, sparks, objects, the cutaway
+- `lib/runner.mjs`: the runner as `api.figure`, posed, with the blaster
+- `objects/*.lisp`: every prop, set piece and enemy, in the object dialect
 - `lib/input.mjs`: keyboard, pointer, and unified per-tick controller snapshot
 - `lib/gamepad.mjs`: standard/Joy-Con mapping, dead zones, saved raw bindings
 - `lib/controller-setup.mjs`: controller diagnostics and calibration panel

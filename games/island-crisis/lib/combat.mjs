@@ -4,7 +4,6 @@
 // One tap, one shot, one kill: a hit enemy flashes red, then bursts.
 import { BIOMES, groundAt } from './world.mjs';
 import * as Rail from './rail.mjs';
-import * as M from './mesh.mjs';
 import * as Overlay from './overlay.mjs';
 import { project, rayDir } from './render.mjs';
 import { targetPoint } from './targeting.mjs';
@@ -23,6 +22,12 @@ export function quadrantOf(f, s) {
 
 const playerCore = S => [S.player.f, S.player.s, S.player.u + 80];
 const enemyColor = S => S.stage === 'island' ? BIOMES[S.biome < 0 ? 0 : S.biome].enemy : [235, 96, 52];
+// Which recoloured copy of an enemy's object to draw: the island's biome,
+// or 0 (the object as written) indoors and in the jungle.
+const skinOf = S => S.stage === 'island' && S.biome > 0 ? S.biome : 0;
+// The copies the game has defined (game.mjs, from objects/*.lisp at boot).
+export const SKINNED = ['drone', 'charger', 'turret', 'shield'];
+export const skins = new Set();
 const centerU = e => e.u + (e.type === 'turret' ? 100 : 0);
 
 // Where a flyer hovers: `box` is [near, far, lateral, low, high] around the
@@ -42,7 +47,7 @@ export function spawnFlyer(S, type, q, lateral, opts = {}) {
     type, q, hp: 1, t: 0, flash: 0, dying: 0, phase: rnd(0, 6), box, wave: opts.wave ?? -1,
     f: QD[q][0] * depth + QR[q][0] * lateral, s: QD[q][1] * depth + QR[q][1] * lateral, u: rnd(box[3], box[4]) + 200,
     vf: 0, vs: 0, vu: 0, rad: type === 'drone' ? 120 : 100, score: type === 'drone' ? 100 : 150,
-    fireT: opts.fireT ?? rnd(90, 170), dmg: 10, col: enemyColor(S),
+    fireT: opts.fireT ?? rnd(90, 170), dmg: 10, col: enemyColor(S), skin: skinOf(S),
   };
   hoverTarget(e, Math.max(-box[2], Math.min(box[2], lateral * .6)));
   S.enemies.push(e);
@@ -58,7 +63,7 @@ export function spawnSlab(S, q, lateral, up, opts = {}) {
     type: 'slab', q, hp: 1, t: 0, flash: 0, dying: 0, phase: rnd(0, 6), wave: opts.wave ?? -1,
     f: QD[q][0] * from + QR[q][0] * lateral, s: QD[q][1] * from + QR[q][1] * lateral, u: up + 300,
     tf: QD[q][0] * depth + QR[q][0] * lateral, ts: QD[q][1] * depth + QR[q][1] * lateral, tu: up,
-    rad: 330, score: 300, fireT: rnd(140, 220), dmg: 12, col: opts.col || [236, 96, 52],
+    rad: 330, score: 300, fireT: rnd(140, 220), dmg: 12, col: opts.col || [236, 96, 52], skin: skinOf(S),
   };
   S.enemies.push(e);
   return e;
@@ -85,7 +90,7 @@ function spawnTurrets(S) {
     const w = Rail.toWorld(fr, rnd(-100, 100), side * rnd(260, 430), 0);
     w[1] = groundAt(w[0], w[2]);
     S.enemies.push({ type: 'turret', w, f: 0, s: 0, u: 0, hp: 1, t: 0, flash: 0, dying: 0, rad: 120, score: 120,
-      fireT: rnd(50, 100), dmg: 10, col: enemyColor(S) });
+      fireT: rnd(50, 100), dmg: 10, col: enemyColor(S), skin: skinOf(S) });
   }
 }
 
@@ -365,89 +370,71 @@ export function step(S, api, fr) {
 
 export const stepParticlesOnly = stepParts;
 
-// Hit enemies flash red and white, swelling a little, before they burst.
-function inkOf(S, e) {
-  if (e.dying) return (S.t >> 1) % 2 ? [255, 36, 36] : [255, 236, 236];
-  if (e.flash) return (e.flash >> 1) % 2 ? [255, 40, 40] : [255, 255, 255];
-  return e.col;
+// Hit enemies flash red and white, swelling a little, before they burst:
+// the objects' `hurt` (red) and `turbo` (white) switches.
+function flashOf(S, e) {
+  const on = e.dying ? (S.t >> 1) % 2 : e.flash ? (e.flash >> 1) % 2 : -1;
+  return { hurt: on === 1 ? 1 : 0, turbo: on === 0 ? 1 : 0 };
 }
+const UP = [0, 1, 0];
+const flat = v => [v[0], 0, v[2]];
+const objectName = (type, e) => {
+  const n = e.skin ? type + '-' + e.skin : type;
+  return e.skin && !skins.has(n) ? type : n;
+};
 
-export function draw(R, S, fr) {
+export function draw(scene, S, fr) {
   const pw = Rail.toWorld(fr, S.player.f, S.player.s, S.player.u + 80);
   for (const e of S.enemies) {
     const P = Rail.toWorld(fr, e.f, e.s, e.u);
     if (e.type === 'turret') P[1] = e.w[1];
-    const col = inkOf(S, e), hot = e.dying || e.flash;
-    const dark = hot ? [col[0] * .6, col[1] * .3, col[2] * .3] : [col[0] * .35, col[1] * .35, col[2] * .35];
+    const inputs = flashOf(S, e), hot = inputs.hurt || inputs.turbo;
     const k = e.dying ? 1 + (DYING - e.dying) * .02 : 1;
     const toP = [pw[0] - P[0], pw[1] - P[1], pw[2] - P[2]];
-    const faces = [];
     if (e.type === 'drone') {
-      const B = M.yawBasis(P, e.t * .08);
-      M.octa(faces, B, 0, 0, 0, 96 * k, 40 * k, 96 * k, col, !hot);
-      M.pyramid(faces, B, 0, 24, 0, 38 * k, 50 * k, 4, dark);
-      M.box(faces, B, 0, -9, 0, 140 * k, 6, 14, dark);
-      R.mesh(faces);
-      if (!hot) R.spark(P[0], P[1] - 42, P[2], 19, 255, 255, 190, -30);
+      scene.object(objectName('drone', e), inputs, P, flat(toP), UP, k, 200);
     } else if (e.type === 'charger') {
-      const B = M.lookBasis(P, e.t > 100 ? [e.vf * fr.F[0] + e.vs * fr.S[0], e.vu, e.vf * fr.F[2] + e.vs * fr.S[2]] : toP);
-      const c = !hot && e.t > 80 && (e.t >> 2) % 2 ? [255, 240, 200] : col;
-      M.octa(faces, B, 0, 0, 0, 45 * k, 45 * k, 130 * k, c, !hot);
-      M.box(faces, B, 0, 0, -56, 100 * k, 6, 30, dark);
-      R.mesh(faces);
-      if (e.t > 100 && !hot) R.spark(...M.at(B, 0, 0, -150), 34, 255, 160, 60, 10);
+      const moving = e.t > 100;
+      const fwd = moving ? [e.vf * fr.F[0] + e.vs * fr.S[0], e.vu, e.vf * fr.F[2] + e.vs * fr.S[2]] : toP;
+      if (!hot && e.t > 80 && (e.t >> 2) % 2) inputs.turbo = 1;
+      scene.object(objectName('charger', e), inputs, P, fwd, UP, k, 200);
+      if (moving && !hot) {
+        const l = Math.hypot(...fwd) || 1;
+        scene.spark(P[0] - fwd[0] / l * 150, P[1] - fwd[1] / l * 150, P[2] - fwd[2] / l * 150, 34, 255, 160, 60);
+      }
     } else if (e.type === 'turret') {
-      const B = M.yawBasis(P, 0);
-      M.box(faces, B, 0, 42, 0, 74, 42, 74, hot ? col : [70, 70, 80], dark);
-      M.box(faces, B, 0, 118 * k, 0, 48 * k, 34 * k, 48 * k, col, null, !hot);
-      const head = M.at(B, 0, 118, 0);
-      M.box(faces, M.lookBasis(head, [pw[0] - head[0], pw[1] - head[1], pw[2] - head[2]]), 0, 0, 78, 13, 13, 70, dark);
-      R.mesh(faces);
+      const dy = pw[1] - (P[1] + 118), across = Math.hypot(toP[0], toP[2]);
+      inputs.pitch = Math.atan2(dy, across);
+      scene.object(objectName('turret', e), inputs, P, flat(toP), UP, k, 220);
     } else if (e.type === 'slab') {
-      const B = M.lookBasis(P, toP);
-      const glow = 150 + 100 * Math.abs(Math.sin(e.t * .08));
       const charge = e.fireT < 40 && !hot;
-      M.box(faces, B, 0, 0, 0, 380 * k, 250 * k, 34, col, null, !hot);
-      for (const sx of [-1, 1]) M.box(faces, B, sx * 400 * k, 0, -10, 40, 280 * k, 50, dark, null, !hot);
-      M.box(faces, B, 0, 270 * k, -10, 420 * k, 26, 46, dark, null, !hot);
-      R.mesh(faces, 0);
-      // The face panel and core sit on the plate, so they sort in front of it.
-      const front = [];
-      M.box(front, B, 0, 0, 40, 330 * k, 200 * k, 4, dark, null, false);
-      R.mesh(front, -60);
-      const core = [];
-      M.octa(core, B, 0, 0, 70, 90 * k, 90 * k, 40, hot ? [255, 255, 255] : charge ? [255, 255, 200] : [255, glow, 90], false);
-      R.mesh(core, -120);
-      if (charge) R.spark(...M.at(B, 0, 0, 110), 60 + (40 - e.fireT) * 2, 255, 230, 140, -60);
+      if (charge) inputs.turbo = 1;
+      scene.object(objectName('shield', e), inputs, P, toP, UP, k, 520);
+      if (charge) {
+        const l = Math.hypot(...toP) || 1;
+        scene.spark(P[0] + toP[0] / l * 130, P[1] + toP[1] / l * 130, P[2] + toP[2] / l * 130, 60 + (40 - e.fireT) * 2, 255, 230, 140);
+      }
     } else if (e.type === 'gunship') {
-      const B = M.yawBasis(P, Math.atan2(toP[0], toP[2]));
-      M.box(faces, B, 0, 0, 0, 170, 78, 320, col, dark, !hot);
-      M.box(faces, B, 0, -14, -42, 500, 14, 126, dark);
-      M.box(faces, B, 460, -56, -42, 42, 70, 98, [80, 80, 96]);
-      M.box(faces, B, -460, -56, -42, 42, 70, 98, [80, 80, 96]);
-      M.pyramid(faces, B, 0, 78, 56, 98, 84, 4, dark);
-      const pulse = 150 + 100 * Math.abs(Math.sin(e.t * .1));
-      M.octa(faces, B, 0, -84, 210, 70, 56, 70, hot ? [255, 255, 255] : [255, pulse, 120], false);
-      R.mesh(faces);
-      R.spark(...M.at(B, 460, -126, -42), 42, 255, 170, 80, 10);
-      R.spark(...M.at(B, -460, -126, -42), 42, 255, 170, 80, 10);
+      scene.object('gunship', inputs, P, flat(toP), UP, 1, 600);
     }
   }
   for (const b of S.ebullets) {
     const P = Rail.toWorld(fr, b.f, b.s, b.u), s = b.big ? 2.2 : 1;
-    R.spark(P[0], P[1], P[2], 30 * s, 255, 70, 90);
-    R.spark(P[0], P[1], P[2], 15 * s, 255, 236, 220, -2);
+    scene.spark(P[0], P[1], P[2], 30 * s, 255, 70, 90);
+    // The bright heart, a hair nearer the lens than its halo.
+    const c = scene.cam, n = 4;
+    scene.spark(P[0] - c.fw[0] * n, P[1] - c.fw[1] * n, P[2] - c.fw[2] * n, 15 * s, 255, 236, 220);
   }
   for (const b of S.shots) {
     for (let i = 0; i < 4; i++) {
       const k = i * .22;
       const P = Rail.toWorld(fr, b.f - b.vf * k, b.s - b.vs * k, b.u - b.vu * k);
-      R.spark(P[0], P[1], P[2], 20 - i * 4, i ? 120 : 230, i ? 220 : 255, 255);
+      scene.spark(P[0], P[1], P[2], 20 - i * 4, i ? 120 : 230, i ? 220 : 255, 255);
     }
   }
   for (const q of S.parts) {
     const P = Rail.toWorld(fr, q.f, q.s, q.u);
     const k = q.life / q.max;
-    R.spark(P[0], P[1], P[2], q.size * (.4 + k), q.col[0], q.col[1], q.col[2]);
+    scene.spark(P[0], P[1], P[2], q.size * (.4 + k), q.col[0], q.col[1], q.col[2]);
   }
 }

@@ -1,6 +1,6 @@
 import { motionState, stepMotion, railAdvance, BOOST, BRAKE_SCALE } from '../lib/motion.mjs';
 import { candidates, chooseTarget, updateAutoAim } from '../lib/targeting.mjs';
-import { makeCamera, Renderer } from '../lib/render.mjs';
+import { makeCamera, Scene, SCENERY, HORIZON } from '../lib/render.mjs';
 import { canTarget, hitsHurdle, HURDLES } from '../lib/facility.mjs';
 import { buildWorld, groundAt, world, HALF, CELL, V } from '../lib/world.mjs';
 import { frame } from '../lib/rail.mjs';
@@ -111,20 +111,61 @@ check(canTarget(room, enemy(800, 0)), 'Open door allows target');
 S.enemies = [right]; S.level = { canTarget: () => false };
 check(candidates(S, fr).length === 0, 'Gameplay occlusion is respected despite scenic cutaway');
 
-const renderer = new Renderer();
-const triangle = (z, scenery) => renderer.triC(-20, -20, z, 20, -20, z, 0, 20, z, 255, 0, 0, 0, scenery);
-renderer.begin(cam, 200);
-triangle(100, true);
-check(renderer.n === 0, 'Foreground scenery is cut away');
-triangle(100, false);
-check(renderer.n === 1, 'Combat geometry is not cut away');
-renderer.begin(cam, 200);
-renderer.triC(-30, -30, 100, 30, -30, 300, 0, 30, 300, 255, 0, 0, 0, true);
-check(renderer.n === 2, 'Scenery crossing cut plane is clipped, not discarded entirely');
-check(renderer.pool.slice(0, renderer.n).every(t => [t.x1, t.y1, t.x2, t.y2, t.x3, t.y3].every(Number.isFinite)), 'Clipping produces finite coordinates');
-renderer.begin(cam);
-triangle(100, true);
-check(renderer.n === 1, 'Map/title rendering preserves scenery');
+// The scene hands faces, objects and the camera to the engine: a fake api
+// records what it was given.
+const api = { faces: [], objects: [], spec: null,
+  camera(spec) {
+    this.spec = spec;
+    const v = p => ({ x: p[0], y: p[1], z: p[2] });
+    return { position: v(spec.position), target: v(spec.target) };
+  },
+  project: () => ({ x: 800, y: 420, behind: false }),
+  face(...a) { this.faces.push(a); },
+  object(name, inputs, m) { this.objects.push({ name, inputs, m: Array.from(m) }); } };
+const scene = new Scene();
+scene.begin(api, cam, [0, 180, 900]);
+check(close(api.spec.position[1], -180) && close(api.spec.target[2], 100) && api.spec.target[1] === api.spec.position[1],
+  'Camera crosses to the engine with y flipped, looking the same way');
+check(close(api.spec.fov, cam.hfov * 180 / Math.PI) && api.spec.fov > .62 * 180 / Math.PI, 'Camera fov is across the stage');
+check(cam.cx === 800 && cam.cy === 420, "Our lens centre is measured from the engine's projection");
+const flatTri = (z, flags) => scene.tri(-20, 160, z, 20, 160, z, 0, 200, z, 255, 0, 0, flags);
+flatTri(100, SCENERY);
+check(api.faces.length === 0, 'Foreground scenery is cut away');
+flatTri(100);
+check(api.faces.length === 1 && api.faces[0][1] === -160 && api.faces[0][7] === -200, 'Combat faces are not cut, and cross with y flipped');
+scene.tri(-20, -300, 100, 20, -300, 100, 0, -260, 100, 9, 9, 9, SCENERY);
+check(api.faces.length === 2, 'Ground below the line of sight is kept');
+scene.tri(1200, 160, 300, 1240, 160, 300, 1220, 200, 300, 9, 9, 9, SCENERY);
+check(api.faces.length === 3, 'Scenery off to the side of the line of sight is kept');
+api.faces.length = 0;
+scene.begin(api, cam);
+flatTri(100, SCENERY);
+check(api.faces.length === 1, 'Title and map keep all scenery');
+api.faces.length = 0;
+flatTri(9000);
+check(api.faces.length === 0, 'Faces past the far plane are left out');
+flatTri(9000, HORIZON);
+check(api.faces.length === 1 && api.faces[0].slice(9).every((v, k) => close(v, cam.fog[k])), 'The horizon sea runs on, fully fogged');
+api.faces.length = 0;
+scene.quad([-50, 0, 500], [50, 0, 500], [50, 0, 600], [-50, 0, 600], [9, 9, 9], [0, -1, 0]);
+check(api.faces.length === 0, 'A one-sided face seen from behind is dropped');
+scene.quad([-50, 0, 500], [50, 0, 500], [50, 0, 600], [-50, 0, 600], [9, 9, 9], [0, 1, 0]);
+check(api.faces.length === 2, 'Seen from its side it draws, as two faces');
+scene.object('crate', null, [10, 20, 600], [0, 0, 1], [0, 1, 0], [2, 3, 4]);
+const m = api.objects[0].m;
+check(m.slice(0, 3).join() === '10,-20,600' && m.slice(3, 6).join() === '0,0,2' && m.slice(6, 9).join() === '0,-3,0',
+  'Object frame: origin and forward cross, up is the engine\'s -y');
+check(close(m[9], 4) && close(m[10], 0) && close(m[11], 0), 'Object z (its right) is our right');
+scene.object('crate', null, [0, 0, -500], [0, 0, 1]);
+check(api.objects.length === 1, 'Objects behind the camera are left out');
+scene.begin(api, cam, [0, 180, 1000]);
+check(!scene.object('crate', null, [0, 150, 300], [0, 0, 1], [0, 1, 0], 1, 50, SCENERY) && api.objects.length === 1,
+  'Scenery props in the line of sight take the cutaway');
+check(scene.object('crate', null, [0, 0, 300], [0, 0, 1], [0, 1, 0], 1, 50, SCENERY) && api.objects.length === 2,
+  'A low prop under the line of sight stays');
+api.faces.length = 0;
+scene.spark(0, 180, 900, 10, 255, 255, 255);
+check(api.faces.length === 2 && api.faces.every(f => [2, 5, 8].every(k => close(f[k], 900))), 'Sparks face the camera');
 
 buildWorld();
 const i = 30, j = 27;

@@ -11,11 +11,10 @@
 // (and only hit) after turning the camera: one on the right wall (E), one on
 // the left (Q), one on the back of a pillar you've already passed (E E).
 // Reach a door still shut and you die.
-import * as M from './mesh.mjs';
 import * as Combat from './combat.mjs';
 import * as Overlay from './overlay.mjs';
 import { rng } from './util.mjs';
-import { project } from './render.mjs';
+import { project, along, SCENERY } from './render.mjs';
 import { railAdvance } from './motion.mjs';
 
 export const HALL = { W: 440, H: 640, Z0: -2400, END: 9200 };
@@ -48,87 +47,109 @@ const WAVES = [
 ];
 
 // ── Geometry ─────────────────────────────────────────────────────────────
+// Rooms are world faces, laid out once in chunks along z; set pieces are
+// objects from objects/*.lisp. A world face carries one depth, so nothing
+// is laid on top of anything: the floor is cut around its stripe, a wall
+// into bands around its light strip.
 const chunks = [];
 const CH = 400;
 function chunkAt(z, tag) {
   const k = Math.floor(z / CH);
   let c = chunks.find(c => c.k === k && c.tag === tag);
-  if (!c) chunks.push(c = { k, tag, z0: k * CH, z1: k * CH + CH, base: [], decal: [], solid: [] });
+  if (!c) chunks.push(c = { k, tag, z0: k * CH, z1: k * CH + CH, quads: [], props: [] });
   return c;
 }
-// A one-sided quad facing along `n`, unlit (interior colours are set by hand).
-function quad(out, a, b, c, d, col, n) {
-  const m = [(a[0] + c[0]) / 2 - n[0] * 100, (a[1] + c[1]) / 2 - n[1] * 100, (a[2] + c[2]) / 2 - n[2] * 100];
-  M.face(out, [a, b, c, d], col, m, false);
-}
+// A one-sided quad facing along `n`: seen only from that side.
+function quad(out, a, b, c, d, col, n) { out.push({ a, b, c, d, col, n }); }
+const prop = (c, name, x, y, z, scale = 1, rad = 400, heading = 0) => c.props.push({ name, x, y, z, scale, rad, heading });
 const UP = [0, 1, 0], DOWN = [0, -1, 0], PX = [1, 0, 0], NX = [-1, 0, 0], PZ = [0, 0, 1], NZ = [0, 0, -1];
-const box = (out, x0, x1, y0, y1, z0, z1, col, top = null) =>
-  M.box(out, M.yawBasis([0, 0, 0], 0), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, col, top);
+// A floor strip from x0 to x1, z0 to z1.
+const floorQuad = (out, x0, x1, z0, z1, col, y = 0) => quad(out, [x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], col, UP);
+// A side wall at x (facing `n`), from y0 to y1 and z0 to z1.
+const wallQuad = (out, x, y0, y1, z0, z1, col, n) => quad(out, [x, y0, z0], [x, y1, z0], [x, y1, z1], [x, y0, z1], col, n);
 
 function buildHall() {
   const { W, H } = HALL;
   for (let z = HALL.Z0; z < HALL.END; z += CH) {
-    const c = chunkAt(z, 'hall'), z1 = z + CH, alt = (z / CH) & 1;
-    quad(c.base, [-W, 0, z], [W, 0, z], [W, 0, z1], [-W, 0, z1], alt ? [58, 62, 76] : [66, 70, 86], UP);
-    quad(c.base, [-W, H, z], [W, H, z], [W, H, z1], [-W, H, z1], [34, 36, 48], DOWN);
-    quad(c.base, [W, 0, z], [W, H, z], [W, H, z1], [W, 0, z1], alt ? [104, 112, 136] : [92, 100, 124], NX);
-    quad(c.base, [-W, 0, z], [-W, H, z], [-W, H, z1], [-W, 0, z1], alt ? [96, 104, 128] : [86, 94, 116], PX);
-    quad(c.decal, [-16, 1, z], [16, 1, z], [16, 1, z1 - 60], [-16, 1, z1 - 60], [255, 210, 70], UP);
+    const c = chunkAt(z, 'hall'), q = c.quads, z1 = z + CH, alt = (z / CH) & 1;
+    const floor = alt ? [58, 62, 76] : [66, 70, 86];
+    floorQuad(q, -W, -16, z, z1, floor);
+    floorQuad(q, 16, W, z, z1, floor);
+    floorQuad(q, -16, 16, z, z1 - 60, [255, 210, 70]);
+    floorQuad(q, -16, 16, z1 - 60, z1, floor);
+    const ceil = [34, 36, 48];
+    const top = (x0, x1, z0, z1, col) => quad(q, [x0, H, z0], [x1, H, z0], [x1, H, z1], [x0, H, z1], col, DOWN);
+    top(-W, -150, z, z1, ceil); top(150, W, z, z1, ceil);
+    if (!alt) { top(-150, 150, z, z + 100, ceil); top(-150, 150, z + 100, z + 300, [236, 244, 255]); top(-150, 150, z + 300, z1, ceil); }
+    else top(-150, 150, z, z1, ceil);
     for (const s of [-1, 1]) {
-      const x = s * (W - 1), n = s > 0 ? NX : PX;
-      quad(c.decal, [x, 40, z], [x, 64, z], [x, 64, z1], [x, 40, z1], [70, 230, 255], n);
-      quad(c.decal, [x, H - 90, z + 30], [x, H - 70, z + 30], [x, H - 70, z1 - 30], [x, H - 90, z1 - 30], [60, 66, 84], n);
+      const x = s * W, n = s > 0 ? NX : PX, wall = (s > 0) === !!alt ? [104, 112, 136] : [92, 100, 124];
+      wallQuad(q, x, 0, 40, z, z1, wall, n);
+      wallQuad(q, x, 40, 64, z, z1, [70, 230, 255], n);
+      wallQuad(q, x, 64, H - 90, z, z1, wall, n);
+      wallQuad(q, x, H - 90, H - 70, z, z1, [60, 66, 84], n);
+      wallQuad(q, x, H - 70, H, z, z1, wall, n);
     }
-    if (!alt) quad(c.decal, [-150, H - 1, z + 100], [150, H - 1, z + 100], [150, H - 1, z + 300], [-150, H - 1, z + 300], [236, 244, 255], DOWN);
   }
   for (const g of GATES) {
-    const c = chunkAt(g.door, 'hall');
-    box(c.solid, -W, -W + 60, 0, H, g.door - 40, g.door + 40, [60, 64, 80]);
-    box(c.solid, W - 60, W, 0, H, g.door - 40, g.door + 40, [60, 64, 80]);
-    box(c.solid, -W, W, H - 60, H, g.door - 40, g.door + 40, [52, 56, 70]);
-    const [x0, x1, y0, y1, z0, z1] = g.fin;
-    box(chunkAt(z0, 'hall').solid, x0, x1, y0, y1, z0, z1, [74, 80, 100], [60, 64, 80]);
+    const [x0, x1, , , z0, z1] = g.fin;
+    prop(chunkAt(z0, 'hall'), 'fin', (x0 + x1) / 2, 0, (z0 + z1) / 2, 1, 700);
   }
 }
 
 function buildHangar() {
   const { W, H, Z0, END, EXIT, DOOR } = HANGAR;
   const R = rng(99);
+  // Floor strips: tile edges every 650, the centre stripe and two lane lines
+  // cut out as strips of their own.
+  const xs = [-W, -1950, -1300, -710, -690, -650, -16, 16, 650, 690, 710, 1300, 1950, W];
   for (let z = Z0; z < END; z += CH) {
-    const c = chunkAt(z, 'hangar'), z1 = z + CH, alt = (z / CH) & 1;
-    for (let x = -W, i = 0; x < W; x += 650, i++)
-      quad(c.base, [x, 0, z], [x + 650, 0, z], [x + 650, 0, z1], [x, 0, z1], (i + alt) & 1 ? [72, 78, 92] : [80, 86, 102], UP);
-    quad(c.base, [-W, H, z], [W, H, z], [W, H, z1], [-W, H, z1], [30, 32, 44], DOWN);
-    quad(c.base, [W, 0, z], [W, H, z], [W, H, z1], [W, 0, z1], alt ? [88, 94, 116] : [80, 86, 108], NX);
-    quad(c.base, [-W, 0, z], [-W, H, z], [-W, H, z1], [-W, 0, z1], alt ? [84, 90, 112] : [76, 82, 104], PX);
-    quad(c.decal, [-16, 1, z], [16, 1, z], [16, 1, z1 - 60], [-16, 1, z1 - 60], [255, 210, 70], UP);
-    for (const lx of [-700, 700]) quad(c.decal, [lx - 10, 1, z], [lx + 10, 1, z], [lx + 10, 1, z1 - 120], [lx - 10, 1, z1 - 120], [200, 206, 220], UP);
-    if ((z / CH) % 3 === 0) {
-      for (const s of [-1, 1]) {
-        const x = s * (W - 1), n = s > 0 ? NX : PX;
-        quad(c.decal, [x, 700, z + 40], [x, 1200, z + 40], [x, 1200, z1 + 300], [x, 700, z1 + 300], [150, 196, 236], n);
-        box(c.solid, s > 0 ? W - 90 : -W, s > 0 ? W : -W + 90, 0, H, z - 50, z + 50, [60, 64, 82]);
-      }
-      box(c.solid, -W, W, H - 70, H, z - 40, z + 40, [46, 50, 64]);
-      for (const lx of [-1500, 0, 1500]) quad(c.decal, [lx - 200, H - 71, z + 120], [lx + 200, H - 71, z + 120], [lx + 200, H - 71, z + 260], [lx - 200, H - 71, z + 260], [236, 244, 255], DOWN);
+    const c = chunkAt(z, 'hangar'), q = c.quads, z1 = z + CH, alt = (z / CH) & 1;
+    for (let i = 0; i + 1 < xs.length; i++) {
+      const x0 = xs[i], x1 = xs[i + 1], mid = (x0 + x1) / 2;
+      const tile = (Math.floor((mid + W) / 650) + alt) & 1 ? [72, 78, 92] : [80, 86, 102];
+      const stripe = Math.abs(mid) < 20, lane = Math.abs(Math.abs(mid) - 700) < 12;
+      if (stripe || lane) {
+        const end = z1 - (stripe ? 60 : 120);
+        floorQuad(q, x0, x1, z, end, stripe ? [255, 210, 70] : [200, 206, 220]);
+        floorQuad(q, x0, x1, end, z1, tile);
+      } else floorQuad(q, x0, x1, z, z1, tile);
+    }
+    quad(q, [-W, H, z], [W, H, z], [W, H, z1], [-W, H, z1], [30, 32, 44], DOWN);
+    const windows = (z / CH) % 3 === 0;
+    for (const s of [-1, 1]) {
+      const x = s * W, n = s > 0 ? NX : PX, wall = alt ? (s > 0 ? [88, 94, 116] : [84, 90, 112]) : (s > 0 ? [80, 86, 108] : [76, 82, 104]);
+      wallQuad(q, x, 0, 700, z, z1, wall, n);
+      if (windows) {
+        wallQuad(q, x, 700, 1200, z, z + 40, wall, n);
+        wallQuad(q, x, 700, 1200, z + 40, z1 - 40, [150, 196, 236], n);
+        wallQuad(q, x, 700, 1200, z1 - 40, z1, wall, n);
+      } else wallQuad(q, x, 700, 1200, z, z1, wall, n);
+      wallQuad(q, x, 1200, H, z, z1, wall, n);
+    }
+    if (windows) {
+      for (const s of [-1, 1]) prop(c, 'rib', s * (W - 45), 0, z, 1, 1600);
+      prop(c, 'beam', 0, 0, z, 1, 2700);
     }
     if (z > Z0 + 400 && z < EXIT - 400 && R() < .7) {
       const s = R() < .5 ? -1 : 1, x = s * (1500 + R() * 800), hw = 120 + R() * 120, h = 140 + R() * 260;
-      box(c.solid, x - hw, x + hw, 0, h, z + 100, z + 100 + hw * 1.6, [130, 104, 72], [150, 122, 86]);
-      if (R() < .5) box(c.solid, x - hw * .6, x + hw * .6, h, h + hw, z + 140, z + 120 + hw * 1.2, [118, 94, 66], [140, 112, 78]);
+      const zc = z + 100 + hw * .8;
+      c.props.push({ name: 'crate', x, y: 0, z: zc, heading: 0, rad: Math.max(h, hw * 2),
+        scale: [hw * 1.6 / 120, h / 120, hw * 2 / 120] });
+      if (R() < .5) c.props.push({ name: 'crate', x, y: h, z: zc, heading: Math.PI / 2, rad: hw * 2,
+        scale: [hw * 1.2 / 120, hw / 120, hw * 1.2 / 120] });
     }
   }
-  const back = chunkAt(Z0, 'hangar-back');
-  quad(back.base, [-W, 0, Z0], [-HALL.W, 0, Z0], [-HALL.W, H, Z0], [-W, H, Z0], [70, 76, 98], PZ);
-  quad(back.base, [HALL.W, 0, Z0], [W, 0, Z0], [W, H, Z0], [HALL.W, H, Z0], [70, 76, 98], PZ);
-  quad(back.base, [-HALL.W, HALL.H, Z0], [HALL.W, HALL.H, Z0], [HALL.W, H, Z0], [-HALL.W, H, Z0], [64, 70, 92], PZ);
+  const back = chunkAt(Z0, 'hangar-back').quads;
+  quad(back, [-W, 0, Z0], [-HALL.W, 0, Z0], [-HALL.W, H, Z0], [-W, H, Z0], [70, 76, 98], PZ);
+  quad(back, [HALL.W, 0, Z0], [W, 0, Z0], [W, H, Z0], [HALL.W, H, Z0], [70, 76, 98], PZ);
+  quad(back, [-HALL.W, HALL.H, Z0], [HALL.W, HALL.H, Z0], [HALL.W, H, Z0], [-HALL.W, H, Z0], [64, 70, 92], PZ);
   const ex = chunkAt(EXIT, 'hangar');
-  quad(ex.base, [-W, 0, EXIT], [-DOOR, 0, EXIT], [-DOOR, H, EXIT], [-W, H, EXIT], [70, 76, 98], NZ);
-  quad(ex.base, [DOOR, 0, EXIT], [W, 0, EXIT], [W, H, EXIT], [DOOR, H, EXIT], [70, 76, 98], NZ);
-  box(ex.solid, -DOOR - 80, -DOOR, 0, H, EXIT - 60, EXIT, [60, 64, 80]);
-  box(ex.solid, DOOR, DOOR + 80, 0, H, EXIT - 60, EXIT, [60, 64, 80]);
+  quad(ex.quads, [-W, 0, EXIT], [-DOOR - 80, 0, EXIT], [-DOOR - 80, H, EXIT], [-W, H, EXIT], [70, 76, 98], NZ);
+  quad(ex.quads, [DOOR + 80, 0, EXIT], [W, 0, EXIT], [W, H, EXIT], [DOOR + 80, H, EXIT], [70, 76, 98], NZ);
+  for (const s of [-1, 1]) prop(ex, 'rib', s * (DOOR + 45), 0, EXIT - 50, 1, 1600);
   const out = chunkAt(EXIT + 800, 'hangar');
-  quad(out.base, [-DOOR, 0, EXIT + 800], [DOOR, 0, EXIT + 800], [DOOR, H, EXIT + 800], [-DOOR, H, EXIT + 800], [255, 252, 232], NZ);
+  quad(out.quads, [-DOOR, 0, EXIT + 800], [DOOR, 0, EXIT + 800], [DOOR, H, EXIT + 800], [-DOOR, H, EXIT + 800], [255, 252, 232], NZ);
 }
 
 export function buildFacility() {
@@ -411,57 +432,49 @@ function spark(S, b, palette) {
 // ── Drawing ──────────────────────────────────────────────────────────────
 const STRIPES = [[236, 190, 40], [40, 42, 54]];
 
-function door(R, z, half, H, open, flip = false) {
-  const faces = [], y0 = open * H, band = H / 8;
+// A door: eight stripes that lift into the ceiling as it opens. Both sides
+// draw, so it reads shut from behind as well.
+function door(scene, z, half, H, open) {
+  const y0 = open * H, band = H / 8;
   for (let i = 0; i < 8; i++) {
     const a = Math.min(H, y0 + i * band), b = Math.min(H, y0 + (i + 1) * band);
     if (b - a < 1) continue;
-    quad(faces, [-half, a, z], [half, a, z], [half, b, z], [-half, b, z], STRIPES[i & 1], flip ? PZ : NZ);
+    scene.quad([-half, a, z], [half, a, z], [half, b, z], [-half, b, z], STRIPES[i & 1]);
   }
-  R.mesh(faces, 10);
 }
 
-function drawSwitch(R, S, g) {
-  const B = M.lookBasis(g.sw, g.face), faces = [];
+function drawSwitch(scene, S, g) {
   const t = S.t, on = g.hit;
-  const pulse = on ? [90, 255, 140] : (t >> 3) % 2 ? [255, 60, 60] : [255, 150, 130];
-  M.box(faces, B, 0, 0, 8, 86, 86, 8, [40, 42, 54], null, false);
-  M.box(faces, B, 0, 0, 24, 54, 54, 12, pulse, null, false);
-  M.box(faces, B, 0, -112, 8, 70, 14, 6, [236, 190, 40], null, false);
-  R.mesh(faces, -10);
+  const at = [g.sw[0] + g.face[0] * 4, g.sw[1], g.sw[2] + g.face[2] * 4];
+  scene.object('switch', { turbo: on ? 1 : 0, hurt: !on && (t >> 3) % 2 ? 0 : 1 }, at, g.face, UP, 1, 200);
   if (!on && S.camDir === g.need) {
-    const r = 130 + 14 * Math.sin(t * .25);
+    // A ring of sparks round a switch you're facing.
+    const r = 130 + 14 * Math.sin(t * .25), side = [g.face[2], 0, -g.face[0]];
     for (let i = 0; i < 8; i++) {
-      const a = i / 8 * Math.PI * 2 + t * .03;
-      const P = M.at(B, Math.cos(a) * r, Math.sin(a) * r, 30);
-      R.spark(P[0], P[1], P[2], 16, 255, 255, 120, -40);
+      const a = i / 8 * Math.PI * 2 + t * .03, c = Math.cos(a) * r, s = Math.sin(a) * r;
+      scene.spark(at[0] + side[0] * c + g.face[0] * 40, at[1] + s, at[2] + side[2] * c + g.face[2] * 40, 16, 255, 255, 120);
     }
   }
 }
 
-export function draw(R, S, cam) {
+export function draw(scene, S, cam) {
   const far = cam.far + CH, cz = cam.pos[2];
   for (const c of chunks) {
     if (c.z1 < cz - far || c.z0 > cz + far) continue;
     if (c.tag === 'hangar-back' && S.stage === 'hall') continue;
     if (c.tag === 'hall' && S.stage === 'hangar' && c.z1 < S.z - 6000) continue;
-    R.mesh(c.base, 80, true);
-    R.mesh(c.decal, 40, true);
-    R.mesh(c.solid, 0, true);
+    for (const q of c.quads) scene.quad(q.a, q.b, q.c, q.d, q.col, q.n, SCENERY);
+    for (const o of c.props) scene.object(o.name, null, [o.x, o.y, o.z], along(o.heading), UP, o.scale, o.rad, SCENERY);
   }
   if (S.stage === 'hall') for (const h of HURDLES) {
     if (Math.abs(h.z - cz) > far) continue;
-    const faces = [];
-    box(faces, -HALL.W, HALL.W, 0, h.height, h.z - 25, h.z + 25, [236, 170, 40], [255, 235, 100]);
-    R.mesh(faces);
+    scene.object('hurdle', null, [0, 0, h.z], PZ, UP, 1, 900);
   }
   for (const g of S.gates) {
     if (Math.abs(g.door - cz) > far) continue;
-    if (g.open < 1) door(R, g.door, HALL.W - 60, HALL.H - 60, g.open);
-    const lamp = M.yawBasis([0, HALL.H - 30, g.door - 44], 0), f = [];
-    M.box(f, lamp, 0, 0, 0, 60, 14, 6, g.hit ? [90, 255, 140] : [255, 60, 60], null, false);
-    R.mesh(f, -5);
-    drawSwitch(R, S, g);
+    if (g.open < 1) door(scene, g.door, HALL.W - 60, HALL.H - 60, g.open);
+    scene.object('gate-frame', { turbo: g.hit ? 1 : 0 }, [0, 0, g.door], PZ, UP, 1, 900);
+    drawSwitch(scene, S, g);
   }
-  if (Math.abs(HANGAR.EXIT - cz) < far + 2000) door(R, HANGAR.EXIT, HANGAR.DOOR, HANGAR.H, S.stage === 'hangar' ? S.script.exit : 0);
+  if (Math.abs(HANGAR.EXIT - cz) < far + 2000) door(scene, HANGAR.EXIT, HANGAR.DOOR, HANGAR.H, S.stage === 'hangar' ? S.script.exit : 0);
 }

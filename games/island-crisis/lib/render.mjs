@@ -1,8 +1,19 @@
-// A small software 3D pipeline on top of api.triangle: camera, near-plane
-// clipping, distance fog and a painter's sort (far faces first).
+// The engine draws the 3D: every triangle goes to api.face and every prop to
+// api.object (objects/*.lisp), seen through api.camera. This module keeps
+// the camera's math on our side too, for culling, fog, aim rays and the HUD.
+//
+// Our world is y-up (the terrain, the rails and the fight were built that
+// way); the engine's is y-down. Every point crosses as (x, -y, z): x stays
+// screen-right, y up becomes the engine's -y up, z stays forward, so the
+// picture and the objects' "z to the right" agree on both sides.
 import { clamp } from './util.mjs';
 
+// Where the engine puts the lens's centre on the stage, measured each frame
+// with api.project (it sits a little above the stage's middle).
+const centre = { dx: 0, dy: 0 };
+
 // target: the point looked at; yaw 0 looks along +z; pitch > 0 looks down.
+// fov is vertical, in radians; the engine wants it across the stage.
 export function makeCamera(target, yaw, pitch, dist, view, opts) {
   const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
   const fw = [sy * cp, -sp, cy * cp], right = [cy, 0, -sy], up = [sy * sp, cp, cy * sp];
@@ -10,7 +21,8 @@ export function makeCamera(target, yaw, pitch, dist, view, opts) {
   const f = view.height / 2 / Math.tan(opts.fov / 2);
   return {
     pos, fw, right, up, yaw, pitch, f, target,
-    cx: view.width / 2, cy: view.height / 2, w: view.width, h: view.height,
+    hfov: 2 * Math.atan(Math.tan(opts.fov / 2) * view.width / view.height),
+    cx: view.width / 2 + centre.dx, cy: view.height / 2 + centre.dy, w: view.width, h: view.height,
     near: 10, far: opts.far, fogStart: opts.fogStart, fog: opts.fog,
   };
 }
@@ -25,6 +37,7 @@ export function toCam(cam, x, y, z) {
 }
 
 // Where a world point lands on screen; null when it is behind the camera.
+// The same projection api.camera is told to use (tests hold the two together).
 export function project(cam, x, y, z) {
   const [X, Y, Z] = toCam(cam, x, y, z);
   if (Z < cam.near) return null;
@@ -39,106 +52,127 @@ export function rayDir(cam, sx, sy) {
   return d.map(v => v / l);
 }
 
-export class Renderer {
-  constructor() {
-    this.pool = [];
-    this.n = 0;
-    this.cam = null;
-    this.px = new Float64Array(8); this.py = new Float64Array(8); this.pz = new Float64Array(8);
-    this.qx = new Float64Array(8); this.qy = new Float64Array(8); this.qz = new Float64Array(8);
+export function cameraSpec(cam) {
+  const t = [0, 1, 2].map(i => cam.pos[i] + cam.fw[i] * 100);
+  return { position: [cam.pos[0], -cam.pos[1], cam.pos[2]], target: [t[0], -t[1], t[2]],
+    fov: cam.hfov * 180 / Math.PI, roll: 0, perspective: 1 };
+}
+
+// A forward vector from a heading: 0 runs along +z, as the rails do.
+export const along = heading => [Math.sin(heading), 0, Math.cos(heading)];
+
+export const SCENERY = 1;
+// Past the far plane too (the open sea runs on to the horizon, in fog).
+export const HORIZON = 2;
+
+export class Scene {
+  constructor() { this.frame = new Float64Array(12); this.stats = { faces: 0, objects: 0 }; }
+
+  // `focus` (the runner, or null) sets the scenery cutaway: terrain, walls
+  // and props nearer the lens than the runner that rise into the line of
+  // sight from the camera to it, and lie close to that line, are left out,
+  // so nothing covers the runner. Ground below the line stays. Combat, the
+  // runner, doors and switches never take the cut.
+  begin(api, cam, focus = null) {
+    this.api = api; this.cam = cam; this.cut = 0;
+    this.stats.faces = this.stats.objects = 0;
+    if (focus) {
+      const [x, , z] = toCam(cam, ...focus);
+      if (z > 200) { this.cut = z - 120; this.focus = { x, y: focus[1], z }; }
+    }
+    const spec = api.camera(cameraSpec(cam));
+    // Measure the engine's centre so our projection (aim, HUD, culling)
+    // lands where its faces do; this frame's camera is fixed up too.
+    const t = api.project(spec.target.x, spec.target.y, spec.target.z);
+    if (!t.behind && Number.isFinite(t.x) && Number.isFinite(t.y)) {
+      centre.dx = t.x - cam.w / 2; centre.dy = t.y - cam.h / 2;
+      cam.cx = t.x; cam.cy = t.y;
+    }
   }
 
-  begin(cam, sceneryNear = 0) { this.cam = cam; this.sceneryNear = sceneryNear; this.n = 0; }
+  // Does something at (x, top, z), `d` deep and `reach` wide, stand in the
+  // line of sight to the runner? Only asked of things nearer than it.
+  blocks(x, top, z, d, reach) {
+    const f = this.focus, c = this.cam, k = Math.max(0, d) / f.z;
+    const line = c.pos[1] + (f.y - c.pos[1]) * k;
+    if (top + 30 < line) return false;
+    const across = (x - c.pos[0]) * c.right[0] + (z - c.pos[2]) * c.right[2];
+    return Math.abs(across - f.x * k) < 420 + reach;
+  }
 
-  push(d, x1, y1, x2, y2, x3, y3, r, g, b) {
+  depth(x, y, z) {
+    const c = this.cam, p = c.pos, F = c.fw;
+    return (x - p[0]) * F[0] + (y - p[1]) * F[1] + (z - p[2]) * F[2];
+  }
+
+  fog(d) {
     const c = this.cam;
-    if ((x1 < 0 && x2 < 0 && x3 < 0) || (x1 > c.w && x2 > c.w && x3 > c.w) ||
-        (y1 < 0 && y2 < 0 && y3 < 0) || (y1 > c.h && y2 > c.h && y3 > c.h)) return;
-    if (Math.abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)) < 3) return;
-    let o = this.pool[this.n];
-    if (!o) o = this.pool[this.n] = {};
-    o.d = d; o.x1 = x1; o.y1 = y1; o.x2 = x2; o.y2 = y2; o.x3 = x3; o.y3 = y3;
-    o.r = r; o.g = g; o.b = b;
-    this.n++;
+    const t = c.fogStart < c.far ? clamp((d - c.fogStart) / (c.far - c.fogStart), 0, 1) : 0;
+    return t * t * (3 - 2 * t);
   }
 
-  fogged(d, r, g, b, out) {
+  // One world triangle, our coordinates, fogged by its middle's depth.
+  tri(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b, flags = 0) {
     const c = this.cam;
-    let t = c.fogStart < c.far ? clamp((d - c.fogStart) / (c.far - c.fogStart), 0, 1) : 0;
-    t = t * t * (3 - 2 * t);
-    out[0] = r + (c.fog[0] - r) * t; out[1] = g + (c.fog[1] - g) * t; out[2] = b + (c.fog[2] - b) * t;
-    return out;
+    const za = this.depth(ax, ay, az), zb = this.depth(bx, by, bz), zc = this.depth(cx, cy, cz);
+    if (za < c.near && zb < c.near && zc < c.near) return;
+    if (!(flags & HORIZON) && za > c.far && zb > c.far && zc > c.far) return;
+    const d = (za + zb + zc) / 3;
+    if (flags & SCENERY && this.cut && d < this.cut && this.blocks((ax + bx + cx) / 3, Math.max(ay, by, cy), (az + bz + cz) / 3, d, 0)) return;
+    this.stats.faces++;
+    const t = this.fog(Math.max(d, 0)), fog = c.fog;
+    this.api.face(ax, -ay, az, bx, -by, bz, cx, -cy, cz,
+      r + (fog[0] - r) * t, g + (fog[1] - g) * t, b + (fog[2] - b) * t);
   }
 
-  // A triangle already in camera space.
-  triC(X1, Y1, Z1, X2, Y2, Z2, X3, Y3, Z3, r, g, b, bias = 0, scenery = false) {
-    const c = this.cam, near = Math.max(c.near, scenery ? this.sceneryNear : 0);
-    if (Z1 < near && Z2 < near && Z3 < near) return;
-    if (Z1 > c.far && Z2 > c.far && Z3 > c.far) return;
-    const d = (Z1 + Z2 + Z3) / 3 + bias;
-    const col = this.fogged(Math.max(d, 0), r, g, b, this.col || (this.col = [0, 0, 0]));
-    const f = c.f, cx = c.cx, cy = c.cy;
-    if (Z1 >= near && Z2 >= near && Z3 >= near) {
-      this.push(d, cx + f * X1 / Z1, cy - f * Y1 / Z1, cx + f * X2 / Z2, cy - f * Y2 / Z2,
-        cx + f * X3 / Z3, cy - f * Y3 / Z3, col[0], col[1], col[2]);
-      return;
+  // A quad (a b c d in order). With a normal `n` it is one-sided: drawn only
+  // from the side n points to, which is how a room's walls drop away when
+  // the camera swings outside them.
+  quad(a, b, c, d, col, n = null, flags = 0) {
+    if (n) {
+      const p = this.cam.pos;
+      if ((p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1] + (p[2] - a[2]) * n[2] <= 0) return;
     }
-    // Sutherland–Hodgman against the near plane.
-    const px = this.px, py = this.py, pz = this.pz, qx = this.qx, qy = this.qy, qz = this.qz;
-    px[0] = X1; py[0] = Y1; pz[0] = Z1; px[1] = X2; py[1] = Y2; pz[1] = Z2; px[2] = X3; py[2] = Y3; pz[2] = Z3;
-    let m = 0;
-    for (let i = 0; i < 3; i++) {
-      const j = (i + 1) % 3;
-      const ain = pz[i] >= near, bin = pz[j] >= near;
-      if (ain) { qx[m] = px[i]; qy[m] = py[i]; qz[m] = pz[i]; m++; }
-      if (ain !== bin) {
-        const t = (near - pz[i]) / (pz[j] - pz[i]);
-        qx[m] = px[i] + (px[j] - px[i]) * t; qy[m] = py[i] + (py[j] - py[i]) * t; qz[m] = near; m++;
-      }
-    }
-    for (let i = 1; i + 1 < m; i++)
-      this.push(d, cx + f * qx[0] / qz[0], cy - f * qy[0] / qz[0],
-        cx + f * qx[i] / qz[i], cy - f * qy[i] / qz[i],
-        cx + f * qx[i + 1] / qz[i + 1], cy - f * qy[i + 1] / qz[i + 1], col[0], col[1], col[2]);
-  }
-
-  triW(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b, bias = 0, scenery = false) {
-    const { pos, right: R, up: U, fw: F } = this.cam;
-    ax -= pos[0]; ay -= pos[1]; az -= pos[2];
-    bx -= pos[0]; by -= pos[1]; bz -= pos[2];
-    cx -= pos[0]; cy -= pos[1]; cz -= pos[2];
-    this.triC(
-      ax * R[0] + ay * R[1] + az * R[2], ax * U[0] + ay * U[1] + az * U[2], ax * F[0] + ay * F[1] + az * F[2],
-      bx * R[0] + by * R[1] + bz * R[2], bx * U[0] + by * U[1] + bz * U[2], bx * F[0] + by * F[1] + bz * F[2],
-      cx * R[0] + cy * R[1] + cz * R[2], cx * U[0] + cy * U[1] + cz * U[2], cx * F[0] + cy * F[1] + cz * F[2],
-      r, g, b, bias, scenery);
-  }
-
-  // Faces from mesh.mjs, with back faces culled.
-  mesh(faces, bias = 0, scenery = false) {
-    const pos = this.cam.pos;
-    for (const fc of faces) {
-      const p = fc.p, n = fc.n;
-      if ((pos[0] - p[0]) * n[0] + (pos[1] - p[1]) * n[1] + (pos[2] - p[2]) * n[2] <= 0) continue;
-      this.triW(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], fc.c[0], fc.c[1], fc.c[2], bias, scenery);
-    }
+    this.tri(...a, ...b, ...c, col[0], col[1], col[2], flags);
+    this.tri(...a, ...c, ...d, col[0], col[1], col[2], flags);
   }
 
   // A camera-facing diamond: bullets, sparks, flames.
-  spark(x, y, z, size, r, g, b, bias = 0) {
-    const c = this.cam;
-    const [X, Y, Z] = toCam(c, x, y, z);
-    if (Z < c.near * 3 || Z > c.far) return;
-    const s = Math.max(1.5, c.f * size / Z), sx = c.cx + c.f * X / Z, sy = c.cy - c.f * Y / Z;
-    const col = this.fogged(Z * .6, r, g, b, [0, 0, 0]);
-    this.push(Z + bias, sx, sy - s, sx + s, sy, sx, sy + s, col[0], col[1], col[2]);
-    this.push(Z + bias, sx, sy - s, sx, sy + s, sx - s, sy, col[0], col[1], col[2]);
+  spark(x, y, z, size, r, g, b) {
+    const c = this.cam, R = c.right, U = c.up;
+    const d = this.depth(x, y, z);
+    if (d < c.near * 3 || d > c.far) return;
+    const t = [x + U[0] * size, y + U[1] * size, z + U[2] * size];
+    const o = [x - U[0] * size, y - U[1] * size, z - U[2] * size];
+    const rr = [x + R[0] * size, y + R[1] * size, z + R[2] * size];
+    const l = [x - R[0] * size, y - R[1] * size, z - R[2] * size];
+    this.tri(...t, ...rr, ...o, r, g, b);
+    this.tri(...t, ...o, ...l, r, g, b);
   }
 
-  flush(api) {
-    const list = this.pool.slice(0, this.n);
-    list.sort((a, b) => b.d - a.d);
-    for (const o of list) api.triangle(o.x1, o.y1, o.x2, o.y2, o.x3, o.y3, o.r | 0, o.g | 0, o.b | 0);
-    return list.length;
+  // An object from objects/*.lisp at `at`, its x along `fwd` and y along
+  // `up` (our coordinates), scaled by a number or [x, y, z]. `rad` is how
+  // far it reaches, for culling; scenery takes the cutaway.
+  object(name, inputs, at, fwd = [0, 0, 1], up = [0, 1, 0], scale = 1, rad = 200, flags = 0) {
+    const c = this.cam, d = this.depth(...at);
+    if (d < -rad || d - rad > c.far) return false;
+    if (flags & SCENERY && this.cut && d < this.cut && this.blocks(at[0], at[1] + rad, at[2], d, rad * .5)) return false;
+    this.stats.objects++;
+    // Orthonormal: up made square to forward, right from the two.
+    let fl = Math.hypot(...fwd) || 1;
+    const F = [fwd[0] / fl, fwd[1] / fl, fwd[2] / fl];
+    const k = up[0] * F[0] + up[1] * F[1] + up[2] * F[2];
+    let U = [up[0] - F[0] * k, up[1] - F[1] * k, up[2] - F[2] * k];
+    fl = Math.hypot(...U) || 1;
+    U = [U[0] / fl, U[1] / fl, U[2] / fl];
+    const [sx, sy, sz] = typeof scale === 'number' ? [scale, scale, scale] : scale;
+    // Into the engine's space: y flips; object z is forward × up there.
+    const fe = [F[0], -F[1], F[2]], ue = [U[0], -U[1], U[2]];
+    const ze = [fe[1] * ue[2] - fe[2] * ue[1], fe[2] * ue[0] - fe[0] * ue[2], fe[0] * ue[1] - fe[1] * ue[0]];
+    const m = this.frame;
+    m[0] = at[0]; m[1] = -at[1]; m[2] = at[2];
+    for (let i = 0; i < 3; i++) { m[3 + i] = fe[i] * sx; m[6 + i] = ue[i] * sy; m[9 + i] = ze[i] * sz; }
+    this.api.object(name, inputs, m);
+    return true;
   }
 }

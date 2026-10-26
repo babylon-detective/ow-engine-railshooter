@@ -1,44 +1,36 @@
 // Everything flat: the sky and sea behind the scene, and the HUD and map in
 // front of it.
-import { project, rayDir, toCam } from './render.mjs';
-import { world, BIOMES, SEA_COLOR } from './world.mjs';
+import { project, toCam, HORIZON } from './render.mjs';
+import { world, BIOMES, SEA_COLOR, HALF, LIGHT } from './world.mjs';
 import * as Rail from './rail.mjs';
-import { LIGHT } from './mesh.mjs';
 import { quadrantOf } from './combat.mjs';
 import { clamp, mix3 } from './util.mjs';
 import { bigWidth, bigWrite } from './bigtext.mjs';
 
 const ink = (api, c) => [c[0] | 0, c[1] | 0, c[2] | 0];
 
-export function background(api, cam, sky) {
-  const { w, h, cx, cy, f } = cam;
-  api.wipe(...ink(api, sky));
-  const horizon = cy - f * Math.tan(Math.min(cam.pitch, 1.55));
-  const top = mix3(sky, [sky[0] * .7, sky[1] * .75, sky[2] * .9], .8);
-  const bands = 10;
-  if (horizon > 0) {
-    const hy = Math.min(h, horizon);
-    for (let i = 0; i < bands; i++) {
-      const y0 = hy * i / bands, y1 = hy * (i + 1) / bands;
-      api.box(0, y0, w, y1 - y0 + 1, ...ink(api, mix3(top, cam.fog, Math.pow((i + 1) / bands, 2.2))));
-    }
-    const sun = project(cam, cam.pos[0] + LIGHT[0] * 1e5, cam.pos[1] + LIGHT[1] * 1e5, cam.pos[2] + LIGHT[2] * 1e5);
-    if (sun && sky[0] + sky[1] + sky[2] > 200 && sun.y < horizon) {
-      const s = 46;
-      api.triangle(sun.x, sun.y - s, sun.x + s, sun.y, sun.x - s, sun.y, 255, 246, 210);
-      api.triangle(sun.x, sun.y + s, sun.x + s, sun.y, sun.x - s, sun.y, 255, 246, 210);
-    }
+// Behind the island: the sky is the wipe (the game calls it), the open sea
+// round the terrain grid is world faces fogged by depth, and the sun is a
+// diamond far out along the light.
+export function background(api, scene, cam) {
+  const reach = Math.max(cam.far * 1.3, 6000);
+  const cell = reach > 30000 ? HALF * 2 : reach > 12000 ? HALF : HALF / 2;
+  const [px, , pz] = cam.pos, kx = cam.cx / cam.f;
+  const lo = k => -HALF + Math.floor((k - reach + HALF) / cell) * cell;
+  for (let x = lo(px); x < px + reach; x += cell) for (let z = lo(pz); z < pz + reach; z += cell) {
+    if (x >= -HALF && x + cell <= HALF && z >= -HALF && z + cell <= HALF) continue;
+    const mx = x + cell / 2, mz = z + cell / 2, d = scene.depth(mx, 0, mz);
+    if (d < -cell || d > reach + cell) continue;
+    const across = (mx - px) * cam.right[0] + (mz - pz) * cam.right[2];
+    if (Math.abs(across) > Math.max(0, d) * kx + cell * 1.5) continue;
+    scene.quad([x, 0, z], [x + cell, 0, z], [x + cell, 0, z + cell], [x, 0, z + cell], SEA_COLOR, null, HORIZON);
   }
-  if (horizon < h) {
-    const y0 = Math.max(0, horizon);
-    for (let i = 0; i < bands; i++) {
-      const a = y0 + (h - y0) * i / bands, b = y0 + (h - y0) * (i + 1) / bands;
-      const d = rayDir(cam, cx, (a + b) / 2);
-      const dist = d[1] < -1e-4 ? cam.pos[1] / -d[1] : 1e9;
-      let t = cam.fogStart < cam.far ? clamp((dist - cam.fogStart) / (cam.far - cam.fogStart), 0, 1) : 0;
-      api.box(0, a, w, b - a + 1, ...ink(api, mix3(SEA_COLOR, cam.fog, t)));
-    }
-  }
+  const sky = cam.fog;
+  if (sky[0] + sky[1] + sky[2] < 200 || cam.pitch > 1.2) return;
+  const c = [0, 1, 2].map(k => cam.pos[k] + LIGHT[k] * 60000), s = 1800, R = cam.right, U = cam.up;
+  const pt = (a, b) => [c[0] + R[0] * a + U[0] * b, -(c[1] + R[1] * a + U[1] * b), c[2] + R[2] * a + U[2] * b];
+  api.face(...pt(0, s), ...pt(s, 0), ...pt(0, -s), 255, 246, 210);
+  api.face(...pt(0, s), ...pt(0, -s), ...pt(-s, 0), 255, 246, 210);
 }
 
 function edgeArrow(api, cam, x, y, behind, col) {
