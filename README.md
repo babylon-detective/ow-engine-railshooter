@@ -12,9 +12,10 @@ npm run build my-game         # → dist/my-game/ (static site: vercel deploy di
 ```
 
 - `GAME-SPEC.md` — the game format and the engine API.
+- `OBJECT-DIALECT.md` — the KidLisp dialect a game's own `objects/*.lisp` props, vehicles and rigs are written in (`orb`, `tube`, `patch`, `bend`, `grain`, `mottle`, …).
 - `CLAUDE.md` — how a coding agent should work here (start here with Claude Code).
 - `WANTS.md` — what games need from the engine next.
-- `games/hello` (own) and `games/jump-count` (overlay) are working examples.
+- `games/hello` (own), `games/showroom` (own, in the engine's 3D: camera, world faces, oskiewar's props and figures, `.lisp` objects of its own), `games/kennel` (own: two hounds as dialect rigs, joints solved from `distance`/`speed`/`time`), `games/typist` (own: a typing rail shooter) and `games/jump-count` (overlay) are working examples.
 
 Needs Node 20 or newer.
 

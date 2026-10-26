@@ -147,7 +147,7 @@
   <meta name="twitter:title" content="oskiewar — a free fighting game in your browser">
   <meta name="twitter:image" content="https://oskiewar.com/social/oskiewar-title.jpg">
   <style>
-    html.mime-replay :is(#account, #account-panel, #game-menu, #theme-toggle, #status) { display: none !important; }
+    html.mime-replay :is(#account, #account-panel, #game-menu, #theme-toggle, #mac-store, #status) { display: none !important; }
     /* The card takes its own gestures (mime-replay.mjs): one finger turns
        the lens, two dolly it. The game's canvas handlers stay out of it. */
     html.mime-replay canvas { pointer-events: none; }
@@ -298,6 +298,21 @@
     body:not(.touch-enabled) #game-menu { display: none; }
     /* The theme follows the clock and the system; no button for it. */
     #theme-toggle { display: none !important; }
+    /* The Mac App Store door (1.0.0 live 2026-10-20), in the corner the theme
+       button left empty, captioned like the p1 cards across from it. Title
+       only, and never on a touch screen: an iPad or the iOS app has nothing
+       to do with a Mac download. */
+    #mac-store { position: fixed; z-index: 6;
+      right: calc(max(14px, env(safe-area-inset-right), var(--inset-right, 0px)) + 8px);
+      bottom: calc(max(14px, env(safe-area-inset-bottom), var(--inset-bottom, 0px)) + 4px);
+      font: 700 clamp(13px, 2.4vmin, 24px)/1 "Comic Relief", "Comic Sans MS", Arial, sans-serif;
+      color: #ffeef9; text-shadow: 2px 3px 0 #26222b; text-decoration: none;
+      transition: transform .08s; }
+    #mac-store:hover { transform: translate(-1px, -2px); text-decoration: underline; }
+    #mac-store:focus-visible { outline: 3px solid #e6cd5c; outline-offset: 4px; }
+    body:not(.title-open) #mac-store, body.touch-enabled #mac-store,
+      body.social-preview #mac-store, body.midi-mode #mac-store,
+      body.midi-out #mac-store { display: none; }
     /* Scoring from a DAW is anonymous dummy play, so the account door is shut
        and the corner it occupied is free for the midi lamp. */
     body.midi-out #logout { display: none; }
@@ -367,7 +382,7 @@
     #account-panel.working #account-field { opacity: .6; }
     /* A downstream game has no AC sign-in, and an "own" game draws its
        whole screen; oskiewar's chrome (account, menu, theme) is oskiewar's. */
-    .downstream-game :is(#account, #account-panel),
+    .downstream-game :is(#account, #account-panel, #mac-store, #theme-toggle),
     .downstream-own :is(#game-menu, #theme-toggle, #about-game) {
       display: none !important; }
   </style>
@@ -389,6 +404,8 @@
     and throw, two players on one keyboard or online with a room link.
     <a href="/free-fighting-game/">How to play and controls</a>.</p>
   <button id="theme-toggle" class="oskiewar-button" type="button">auto theme</button>
+  <a id="mac-store" href="https://apps.apple.com/us/app/oskiewar/id6802477398?mt=12"
+     target="_blank" rel="noopener">get it for mac</a>
   <button id="game-menu" class="oskiewar-button" type="button" aria-label="Pause menu">menu</button>
   <div id="status" role="alert" aria-live="polite"></div>
   <div id="midi-panel" aria-live="off">
@@ -501,7 +518,7 @@
     document.body.classList.add("title-open");
     // Offline and packaged runtimes remove account controls.
     if (inPackagedApp || offlineRuntime)
-      for (const furniture of document.querySelectorAll("#account, #account-panel"))
+      for (const furniture of document.querySelectorAll("#account, #account-panel, #mac-store"))
         furniture.remove();
     document.body.classList.toggle("social-preview",
       new URLSearchParams(location.search).has("social-preview"));
@@ -571,6 +588,9 @@
     // Which seat and button each held key went to, so a key lifts from the
     // seat it pressed even if the arrows changed hands while it was down.
     const heldKeys = new Map();
+    // Every key held right now, by code, for a downstream game (api.keys());
+    // the engine itself reads only the mapped half above.
+    globalThis.__oskiewarKeys = new Set();
     globalThis.__oskiewarToggleDebug = () => {
       keys[0].add("View");
       setTimeout(() => keys[0].delete("View"), 90);
@@ -1903,6 +1923,7 @@
       // an open panel has to take the whole keyboard, not just the mapped half;
       // each panel handles its own Enter and Escape.
       if (panelOpen()) return;
+      globalThis.__oskiewarKeys.add(event.code);
       const mapped = keyMap.get(event.code);
       if (!mapped) {
         if (tapTitle()) event.preventDefault();
@@ -1919,6 +1940,7 @@
       unlockAudio();
     });
     addEventListener("keyup", (event) => {
+      globalThis.__oskiewarKeys.delete(event.code);
       const mapped = heldKeys.get(event.code) || keyMap.get(event.code);
       if (!mapped) return;
       event.preventDefault();
@@ -2057,6 +2079,7 @@
     canvas.addEventListener("pointerdown", (event) => {
       if (globalThis.__oskiewarWizardOpen) return;
       const point = canvasPoint(event);
+      Object.assign(globalThis.__oskiewarTouch.pointer, point, { active: true, down: true });
       if (stickZoneAt(point) && globalThis.__oskiewarTouch?.screen === "game") {
         event.preventDefault();
         canvas.setPointerCapture?.(event.pointerId);
@@ -2118,9 +2141,14 @@
     });
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
       canvas.addEventListener(type, (event) => releaseTouch(event.pointerId));
+    // A press that ends off the canvas still ends (api.pointer().down).
+    for (const type of ["pointerup", "pointercancel"])
+      addEventListener(type, () => { globalThis.__oskiewarTouch.pointer.down = false; });
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     addEventListener("blur", () => {
       keys.forEach((held) => held.clear());
+      globalThis.__oskiewarKeys.clear();
+      globalThis.__oskiewarTouch.pointer.down = false;
       for (const pointerId of touchPointers.keys()) releaseTouch(pointerId);
       releaseStick(touchStick.pointerId);
       for (const pointerId of grabs.keys()) releaseGrab(pointerId);
@@ -2699,7 +2727,15 @@
         previousTabTitle = index;
         document.title = tabTitles[index];
       };
+      let appliedCursor = "";
       const syncSelectionCursor = () => {
+        // A downstream game names its own cursor (api.cursor): none for a
+        // game that draws its reticle, crosshair, pointer, or default.
+        const wanted = downstreamGame ? String(globalThis.__oskiewarCursor || "default") : "";
+        if (wanted !== appliedCursor) {
+          appliedCursor = wanted;
+          document.body.style.cursor = wanted === "none" || wanted === "crosshair" || wanted === "pointer" ? wanted : "";
+        }
         const pieceScreen = globalThis.__oskiewarTouch?.screen || "";
         const menuOpen = Boolean(globalThis.__oskiewarTouch?.menu);
         document.body.classList.toggle("menu-open", menuOpen);

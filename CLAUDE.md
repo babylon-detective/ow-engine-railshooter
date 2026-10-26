@@ -50,6 +50,13 @@ small steps:
   with relative paths.
 - Put sounds and pictures in `games/<slug>/assets/` and reach them with
   `api.asset("assets/…")`.
+- A 3D game draws in the engine's world (GAME-SPEC.md → The world): one
+  `api.camera`, `api.face` for world triangles, `api.object` for oskiewar's
+  props and `api.figure` for its fighters. Don't write a software renderer
+  over `api.triangle`; the engine projects, depth-sorts and lights. A prop of
+  the game's own is a KidLisp object in `games/<slug>/objects/<name>.lisp`
+  (the dialect is in the engine repo's `OBJECT-DIALECT.md`; `games/showroom`
+  has a crate to copy from).
 
 When something breaks, the game shows a red bar with the error and the
 browser console has the stack. `npm run check` validates every game folder.

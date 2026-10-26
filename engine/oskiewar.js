@@ -313,7 +313,7 @@ function syncNativeAccount() {
 }
 
 // Monotonic count of committed revisions to this piece (next revision included).
-const buildVersion = 449;
+const buildVersion = 455;
 
 // ── Downstream games ─────────────────────────────────────────────────────
 // A .oskie game (xbox/GAME-SPEC.md) arrives from the web shell as
@@ -326,8 +326,128 @@ const downstream = typeof downstreamGame === "object" && downstreamGame ? downst
 const ownsFrame = () => downstream?.manifest.mode === "own";
 const gameTitle = () => downstream?.manifest.title || "oskiewar";
 let downstreamApi = null, downstreamFault = "";
+// The engine's 3D, lent to a game (GAME-SPEC.md → "The world"): the one
+// camera every world face is seen through, WORLD faces, the objects the
+// game draws (object-lisp, xbox/OBJECT-DIALECT.md — the game's own
+// `objects/*.lisp` join them at boot) and the flat figure on sixteen joints.
+// Scratch lives here so a game's paint allocates nothing per call.
+const downstreamCamera = { position: { x: 0, y: 1500, z: -2200 }, target: { x: 0, y: 1500, z: 0 },
+  width: 2200, perspective: 1, fov: 55, roll: 0 };
+const downstreamPlace = new Float64Array(12);
+const downstreamInputs = {};
+const downstreamJoints = new Float64Array(48);
+const downstreamPalette = new Array(30).fill(0);
+const downstreamLooks = new Map();   // palette key → the LOOK this page sent for it
+const downstreamFaceA = { x: 0, y: 0, z: 0 }, downstreamFaceB = { x: 0, y: 0, z: 0 };
+const downstreamFaceC = { x: 0, y: 0, z: 0 }, downstreamFaceColor = [255, 255, 255];
+// The joints a FIGURE op carries, in order (figureJoints in object-lisp.mjs).
+const downstreamJointNames = ["head", "look", "neck", "pelvis", "shoulder-l", "shoulder-r",
+  "elbow-l", "elbow-r", "hand-l", "hand-r", "hip-l", "hip-r", "knee-l", "knee-r", "foot-l", "foot-r"];
+// A fighter's default colours, the ten LOOK slots: skin hair shirt pants
+// skirt shoe accent iris lip blush.
+const downstreamDefaultPalette = [242, 204, 169, 92, 64, 52, 242, 204, 169, 242, 204, 169,
+  188, 164, 226, 40, 36, 48, 242, 204, 169, 96, 140, 196, 236, 140, 150, 246, 172, 156];
+// {x, y, z} or [x, y, z] into `out`; anything else leaves `fallback`.
+function downstreamVec3(value, out, fallback) {
+  if (value && typeof value === "object" && (Array.isArray(value) || ArrayBuffer.isView(value))) {
+    out.x = +value[0] || 0; out.y = +value[1] || 0; out.z = +value[2] || 0;
+  } else if (value && typeof value === "object") {
+    out.x = +value.x || 0; out.y = +value.y || 0; out.z = +value.z || 0;
+  } else if (fallback !== out) { out.x = fallback.x; out.y = fallback.y; out.z = fallback.z; }
+  return out;
+}
+// Where an object stands: twelve numbers as the rig frames know them (the
+// origin, then where object x, y and z point), or { x, y, z, heading |
+// forward, up, scale }. Object x is forward and y is up; z (the owner's
+// right) is forward × up, as drawRevolver and drawMonowheelObject take it.
+// The world's y grows downward, so "up" with nothing said is -y.
+const downstreamAxis = { x: 0, y: 0, z: 0 };
+function downstreamPlaceOf(spec) {
+  const m = downstreamPlace;
+  if (spec && typeof spec === "object" && (Array.isArray(spec) || ArrayBuffer.isView(spec)) && spec.length >= 12) {
+    for (let i = 0; i < 12; i++) m[i] = +spec[i] || 0;
+    return m;
+  }
+  const s = spec && typeof spec === "object" ? spec : {};
+  m[0] = +s.x || 0; m[1] = +s.y || 0; m[2] = +s.z || 0;
+  let fx, fy, fz, ux, uy, uz;
+  if (s.forward) { const f = downstreamVec3(s.forward, downstreamAxis, downstreamAxis); fx = f.x; fy = f.y; fz = f.z; }
+  else { const h = +s.heading || 0; fx = DM.cos(h); fy = 0; fz = DM.sin(h); }
+  if (s.up) { const u = downstreamVec3(s.up, downstreamAxis, downstreamAxis); ux = u.x; uy = u.y; uz = u.z; }
+  else { ux = 0; uy = -1; uz = 0; }
+  const k = s.scale === undefined ? 1 : +s.scale || 0;
+  m[3] = fx * k; m[4] = fy * k; m[5] = fz * k;
+  m[6] = ux * k; m[7] = uy * k; m[8] = uz * k;
+  m[9] = (fy * uz - fz * uy) * k; m[10] = (fz * ux - fx * uz) * k; m[11] = (fx * uy - fy * ux) * k;
+  return m;
+}
+// An object by the name the game draws it under: the engine's (monowheel,
+// revolver, figure, character) or one the game brought. An unknown name or
+// a source that fails to compile throws, and the red bar names it.
+function downstreamObject(name) {
+  if (!gameObjects.sources().includes(name)) throw new Error("no object " + name + " (have " + gameObjects.sources().join(", ") + ")");
+  return gameObjects[name];
+}
+// The game's own objects: every `objects/<name>.lisp` in the .oskie is
+// defined before boot, and compiled then, so a broken one stops the game
+// with its file named rather than failing on its first draw.
+function defineDownstreamObjects() {
+  const files = downstream.files || {};
+  for (const path in files) {
+    const named = /^objects\/([a-z][a-z0-9-]*)\.lisp$/.exec(path);
+    if (!named || typeof files[path]?.text !== "string") continue;
+    try { gameObjects.define(named[1], files[path].text); void gameObjects[named[1]]; }
+    catch (error) {
+      downstreamFault = path + ": " + String(error?.message || error);
+      console.error("[" + downstream.manifest.slug + "]", error);
+      return;
+    }
+  }
+}
+// A figure for the api: a sketch (the flat figure, or the made character
+// with a chosen face) hung on the joints the game hands over, in a palette
+// the game names, drawn as the fighters are (paintFigureSketch).
+function drawDownstreamFigure(joints, options) {
+  const J = downstreamJoints;
+  J.fill(NaN);
+  if (joints && typeof joints === "object" && (Array.isArray(joints) || ArrayBuffer.isView(joints))) {
+    for (let k = 0; k < 48 && k < joints.length; k++) J[k] = +joints[k];
+  } else if (joints && typeof joints === "object") {
+    for (let n = 0; n < 16; n++) {
+      const p = joints[downstreamJointNames[n]];
+      if (!p) continue;
+      const list = Array.isArray(p) || ArrayBuffer.isView(p);
+      J[n * 3] = +(list ? p[0] : p.x); J[n * 3 + 1] = +(list ? p[1] : p.y); J[n * 3 + 2] = +(list ? p[2] : p.z);
+    }
+  }
+  let posed = false;
+  for (let k = 0; k < 48; k += 3) if (J[k] === J[k]) { posed = true; break; }
+  if (!posed) return false;
+  const o = options && typeof options === "object" ? options : {};
+  const palette = downstreamPalette, given = o.palette;
+  if (given && typeof given === "object" && given.length === 10 && typeof given[0] === "object") {
+    for (let s = 0; s < 10; s++) for (let c = 0; c < 3; c++) palette[s * 3 + c] = +given[s][c] || 0;
+  } else if (given && typeof given === "object" && given.length === 30) {
+    for (let k = 0; k < 30; k++) palette[k] = +given[k] || 0;
+  } else for (let k = 0; k < 30; k++) palette[k] = downstreamDefaultPalette[k];
+  const figure = o.eyes !== undefined || o.mouth !== undefined
+    ? gameObjects.characterFigure(o.eyes || "dots", o.mouth || "smile") : gameObjects.figure;
+  const i = figureInputs;
+  i.blink = o.blink ? 1 : 0; i.hurt = o.hurt ? 1 : 0; i.headless = o.headless ? 1 : 0;
+  i.skirt = o.skirt ? 1 : 0; i.glasses = o.glasses ? 1 : 0; i.crowd = o.crowd ? 1 : 0;
+  figure(i, figurePlace, figureVariantOut);
+  const pin = typeof o.pin === "number" ? o.pin : NaN;
+  if (downstreamLooks.size > 256) downstreamLooks.clear();
+  paintFigureSketch(figure.sketches[figureVariant], palette, J, pin, downstreamLooks, palette.join());
+  return true;
+}
 function makeDownstreamApi() {
   const view = () => ({ width: viewWidth(), height: viewHeight });
+  const cameraReading = () => ({
+    position: { x: cameraDoll.position.x, y: cameraDoll.position.y, z: cameraDoll.position.z },
+    target: { x: cameraDoll.target.x, y: cameraDoll.target.y, z: cameraDoll.target.z },
+    fov: cameraDoll.fov, roll: cameraDoll.roll, perspective: cameraDoll.perspective, width: cameraDoll.width,
+  });
   return Object.freeze({
     manifest: downstream.manifest, engine: buildVersion,
     asset: path => downstream.asset(path),
@@ -337,6 +457,15 @@ function makeDownstreamApi() {
       return { connected: raw.connected === true, down: (raw.down || []).slice(),
         leftX: raw.leftX || 0, leftY: raw.leftY || 0, rightX: raw.rightX || 0, rightY: raw.rightY || 0 };
     },
+    // The mouse or finger on the stage, and the keys held right now by
+    // their codes (KeyQ, Space, …), beside the pad the keyboard already is.
+    pointer: () => {
+      const p = globalThis.__oskiewarTouch?.pointer;
+      return p ? { x: p.x || 0, y: p.y || 0, active: p.active === true, down: p.down === true }
+        : { x: 0, y: 0, active: false, down: false };
+    },
+    keys: () => { const held = globalThis.__oskiewarKeys; return held ? Array.from(held) : []; },
+    cursor: (name = "default") => { globalThis.__oskiewarCursor = String(name); },
     // wipe paints the backdrop, under any scene; shapes ride the HUD pass,
     // in front of the fighters, the way the engine's own HUD does.
     wipe: (r = 0, g = 0, b = 0) => box(0, 0, view().width, view().height, r, g, b),
@@ -353,18 +482,72 @@ function makeDownstreamApi() {
     textWidth: (text, size) => handleWidth(String(text), size),
     drum: (name, amount = 1, pan = 0) => playDrum(name, amount, pan),
     tone: (frequency, seconds = .12) => { if (typeof synth === "function") synth(frequency, seconds); },
+    // The world. In own mode the game owns the camera; an overlay looks
+    // through the fight's. World faces are flat colour at a depth the
+    // camera gives them, so they sort against each other and the fighters
+    // on their own; `light` is the sun and `shade` the engine's flat rule,
+    // for a game that wants its faces lit the way the engine lights its own.
+    camera: (spec) => {
+      if (spec && typeof spec === "object" && ownsFrame()) {
+        const c = downstreamCamera;
+        downstreamVec3(spec.position ?? spec.from, c.position, c.position);
+        downstreamVec3(spec.target ?? spec.at, c.target, c.target);
+        if (spec.fov !== undefined) c.fov = clamp(+spec.fov || 55, 5, 170);
+        if (spec.roll !== undefined) c.roll = +spec.roll || 0;
+        if (spec.perspective !== undefined) c.perspective = clamp(+spec.perspective, 0, 1);
+        c.width = spec.width !== undefined ? Math.max(1, +spec.width || 1)
+          : Math.max(1, DM.hypot(c.target.x - c.position.x, c.target.y - c.position.y, c.target.z - c.position.z));
+        cameraDoll.snap(c);
+      }
+      return cameraReading();
+    },
+    face: (ax, ay, az, bx, by, bz, cx, cy, cz, r = 255, g = 255, b = 255) => {
+      if (programBuffered) { emitWorldFace(ax, ay, az, bx, by, bz, cx, cy, cz, r, g, b); return; }
+      const A = downstreamFaceA, B = downstreamFaceB, C = downstreamFaceC, color = downstreamFaceColor;
+      A.x = ax; A.y = ay; A.z = az; B.x = bx; B.y = by; B.z = bz; C.x = cx; C.y = cy; C.z = cz;
+      color[0] = r; color[1] = g; color[2] = b;
+      worldTriangle(A, B, C, color);
+    },
+    light: () => ({ x: globalLight.x, y: globalLight.y, z: globalLight.z }),
+    shade: (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      const nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+      const ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+      const nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      const magnitude = DM.hypot(nx, ny, nz) || 1;
+      const toward = (nx * -globalLight.x + ny * -globalLight.y + nz * -globalLight.z) / magnitude;
+      return .72 + Math.max(0, toward) * .28;
+    },
+    project: (x, y, z = 0) => {
+      const p = projectPoint(x, y, z);
+      return { x: p.x, y: p.y, behind: !!p.behind };
+    },
+    // Objects: the engine's, and the game's own (objects/*.lisp, or
+    // defineObject at run time). Inputs are the dialect's names (time,
+    // distance, speed, lean, heading, pitch, turbo, hit, land, cylinder,
+    // spent, cock, …); what a game leaves out reads the dialect's default,
+    // except `time`, which reads the engine clock.
+    object: (name, inputs, place) => {
+      const object = downstreamObject(String(name));
+      const i = downstreamInputs;
+      for (const key in i) delete i[key];
+      i.time = (Number(runtime().monotonicUs) || 0) / 1000000;
+      if (inputs && typeof inputs === "object") Object.assign(i, inputs);
+      object(i, downstreamPlaceOf(place), objectOut(object));
+    },
+    defineObject: (name, source) => {
+      if (!/^[a-z][a-z0-9-]*$/.test(String(name))) throw new Error("an object's name is a-z, 0-9 and -, starting with a letter");
+      gameObjects.define(String(name), String(source));
+      void gameObjects[String(name)];
+    },
+    objects: () => gameObjects.sources(),
+    figure: (joints, options) => drawDownstreamFigure(joints, options),
     // Overlay only: the fight as it stands, copied out so nothing written
-    // here reaches the simulation, and where a world point lands on screen.
+    // here reaches the simulation.
     players: () => ownsFrame() ? [] : activePlayers().map((p, index) => ({
       index, name: p.name || "", x: p.x, y: p.y, z: p.z || 0, vx: p.vx, vy: p.vy,
       facing: p.facing, grounded: !!p.grounded, alive: !!p.alive,
       score: p.score || 0, roundWins: p.roundWins || 0,
     })),
-    project: (x, y, z = 0) => {
-      if (ownsFrame()) return null;
-      const p = projectPoint(x, y, z);
-      return { x: p.x, y: p.y, behind: !!p.behind };
-    },
     screen: () => ownsFrame() ? "game" : globalThis.__oskiewarTouch?.screen || "",
   });
 }
@@ -3847,18 +4030,26 @@ function drawFlatFigure(player, world, now) {
   // Arenas stand a fighter at one depth, the floor's near edge (see the
   // renderables loop); the pool lets each shape find its own.
   const pin = poolOnly() ? NaN : triangleDepth;
+  paintFigureSketch(sketch, palette, J, pin, flatLooks, player);
+  return true;
+}
+// One figure sketch on one set of joints, in one palette: drawn here on an
+// immediate host, or sent as a LOOK (once per palette per owner — `looks`
+// remembers the handle under `owner`) and a FIGURE op on a buffered one.
+// The fighters and a downstream game's figures share this path.
+function paintFigureSketch(sketch, palette, J, pin, looks, owner) {
   if (!programBuffered) {
     figurePinned = pin === pin;
     gameObjects.drawFigureShapes(sketch, palette, J, pin, prepareObjectView(), figureEdgeOut);
     drawFigureEdged();
-    return true;
+    return;
   }
   emitFrameCamera();
   const handle = sketchHandleFor(sketch), key = palette.join();
-  let look = flatLooks.get(player);
+  let look = looks.get(owner);
   if (!look || look.key !== key) {
     look = { key, handle: nextLookHandle++ };
-    flatLooks.set(player, look);
+    looks.set(owner, look);
     programRoom(32);
     const at = programLength;
     program[at] = FRAME_LOOK; program[at + 1] = look.handle;
@@ -3871,7 +4062,6 @@ function drawFlatFigure(player, world, now) {
   program[at + 3] = pin;
   for (let k = 0; k < 48; k++) program[at + 4 + k] = J[k];
   programLength = at + 52;
-  return true;
 }
 // A body in pieces, drawn the way a whole one is. Each bone is its own flat
 // figure — shapes hung on that bone's two joints only — so a burst body, a
@@ -32523,6 +32713,8 @@ function boot() {
   }
   if (downstream) {
     downstreamApi = makeDownstreamApi();
+    defineDownstreamObjects();
+    if (ownsFrame()) cameraDoll.snap(downstreamCamera);
     callDownstream("boot");
   }
 }
@@ -32543,7 +32735,11 @@ function sim() {
     }
     return;
   }
-  if (ownsFrame()) { callDownstream("sim"); return; }
+  // An own game never runs gameSim, where the stage follows the window, so
+  // the sync happens here: api.view() keeps up with a resize, as the HUD and
+  // the camera's aspect expect (@jeffrey, 2026-10-24: "when resizing the
+  // window the ui should properly reframe").
+  if (ownsFrame()) { syncGameView(); callDownstream("sim"); return; }
   try {
     netDrainHostInbox();
     // A turn that ended mid-session is the chair's last word: leave the fight
@@ -33019,12 +33215,12 @@ const gameObjects = (() => {
 
     const maxDepth = 16;
     const owner = -1;   // a read of the owner's pose, which moves every tick
-    const shapes = { tri: 9, quad: 12, disc: 1, hoop: 2, band: 2, capsule: 7, line: 6 };
+    const shapes = { tri: 9, quad: 12, disc: 1, hoop: 2, band: 2, capsule: 7, line: 6, tube: 7, patch: 48, orb: 4, bend: 12 };
     // Flat shapes: object-space anchors, projected here, drawn as 2D ops.
     const flats = { ball: 4, limb: 7, ring: 2, drum: 3, stroke: 7, plate: 9, slab: 6 };
     const forms = new Set(["def", "let", "if", "repeat", "ink", "glow", "move", "rotate",
       "scale", "radial", "mirror", "revolve", "outline", "nudge", "toward",
-      "on", "bone", "skin", "surface"]);
+      "on", "bone", "skin", "surface", "grain", "mottle", "rough"]);
     const isStatement = (f) => Array.isArray(f) && (forms.has(f[0]) || f[0] in shapes || f[0] in flats);
     const union = (...sets) => { const out = new Set(); for (const s of sets) for (const x of s) out.add(x); return out; };
 
@@ -33408,6 +33604,44 @@ const gameObjects = (() => {
               run(s);
             } };
           }
+          case "grain":
+          case "mottle":
+          case "rough": {
+            // Procedural surface, no images. (grain amount [scale [splits]] body…)
+            // cuts the lit faces inside into smaller ones and lightens or darkens
+            // each by noise, so stone, bark and cloth read faceted. (mottle r g b
+            // amount [scale [splits]] body…) blends each toward a second colour
+            // instead: moss on rock, rust on steel. (rough amount [scale] body…)
+            // moves every corner by noise, the same move for the same point, so
+            // shapes that meet still meet. `scale` is the noise's cell size in the
+            // scope's own units (6 unless given); `splits` cuts each face 4× per
+            // split (one at the near level, none further, unless given).
+            const lead = rest.findIndex((a) => isStatement(a));
+            const opening = rest.slice(0, lead < 0 ? rest.length : lead);
+            const least = head === "mottle" ? 4 : 1, most = head === "rough" ? 2 : least + 2;
+            if (opening.length < least || opening.length > most)
+              fail(`${head} wants ${head === "mottle" ? "r g b " : ""}amount${head === "rough" ? " [scale]" : " [scale [splits]]"}`, form);
+            const reads = new Set(), args = opening.map((a) => num(a, scope, reads));
+            const splitsGiven = opening.length === least + 2;
+            if (head !== "rough" && !splitsGiven) reads.add(detailSlot);   // the near level is cut finer
+            const inside = body(rest.slice(opening.length), scope, depth, ctx), run = inside.run, at = depth * 13;
+            const values = new Float64Array(args.length), rough = head === "rough";
+            return { ...inside, reads: union(reads, inside.reads), run: (s) => {
+              for (let i = 0; i < args.length; i++) values[i] = args[i](s);
+              const scope = surfaceScope(s, at, values, head, splitsGiven);
+              const was = rough ? s.rough : s.grain;
+              if (rough) s.rough = scope;
+              else if (!was) s.grain = scope;
+              else { // nested: colour by the outer first; the inner's cut counts
+                let outer = was; while (outer.inner) outer = outer.inner;
+                outer.inner = scope; s.grain.splits = scope.splits;
+              }
+              run(s);
+              if (rough) s.rough = was;
+              else if (s.grain === scope) s.grain = null;
+              else { let outer = s.grain; while (outer.inner !== scope) outer = outer.inner; outer.inner = null; s.grain.splits = s.grain.ownSplits; }
+            } };
+          }
           case "revolve": {
             // (revolve axis [turn] r h r h …): a closed profile turned about the axis.
             const axis = "xyz".indexOf(rest[0]);
@@ -33454,7 +33688,7 @@ const gameObjects = (() => {
       const state = { v: new Float64Array(slots), m: new Float64Array(maxDepth * 13),
         r: 255, g: 255, b: 255, glow: false, face: null, model: null, owner: null, rec: null,
         out: null, view: null, nudge: 0, outline: [0, 24, 20, 30], sketch: null, sketching: null, facing: null, joint: -1,
-        inked: [0, 0, 0, 0] };
+        inked: [0, 0, 0, 0], grain: null, rough: null };
 
       // Bake every part: per switch value, per level, run once into a mesh. Twin
       // meshes (a level that didn't change anything) share one handle.
@@ -33604,6 +33838,19 @@ const gameObjects = (() => {
     function put(m, at, o, x, y, z) {
       for (let k = 0; k < 3; k++) world[o + k] = m[at + k] + x * m[at + 3 + k] + y * m[at + 6 + k] + z * m[at + 9 + k];
     }
+    // A lit corner: placed, then moved by the rough scope it sits in. The move
+    // is a function of where the point is in the scope's own frame, so two
+    // shapes that share a corner, even across radial copies, still meet.
+    function putLit(s, at, o, x, y, z) {
+      put(s.m, at, o, x, y, z);
+      const r = s.rough;
+      if (!r) return;
+      sampleAt(r, o);
+      const px = sampled[0], py = sampled[1], pz = sampled[2], a = r.amount;
+      world[o] += noise(px, py, pz) * a;
+      world[o + 1] += noise(px + 19.17, py + 7.31, pz + 3.73) * a;
+      world[o + 2] += noise(px + 5.59, py + 23.11, pz + 11.47) * a;
+    }
     // A triangle (n 3) or quad (n 4) already in `world`, wound to face out: shaded
     // by the game's rule and emitted, or kept for a bake. No area, nothing drawn.
     function finish(s, n) {
@@ -33613,8 +33860,25 @@ const gameObjects = (() => {
       const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
       const length = Math.hypot(nx, ny, nz);
       if (!length) return;
-      if (s.rec) { s.rec.add(w, n, s.glow, s.r, s.g, s.b, nx / length, ny / length, nz / length); return; }
       let r = s.r, g = s.g, b = s.b;
+      if (s.grain) {
+        // The face's middle, in each scope's frame, picks its shade: the outer
+        // grain first, then what is nested in it, so a mottle in a grain does both.
+        let mx = 0, my = 0, mz = 0;
+        for (let i = 0; i < n; i++) { mx += w[i * 3]; my += w[i * 3 + 1]; mz += w[i * 3 + 2]; }
+        mx /= n; my /= n; mz /= n;
+        for (let G = s.grain; G; G = G.inner) {
+          const t = noise(...sampleAt(G, 0, 0, mx, my, mz));
+          if (G.mix) {
+            const k = Math.min(1, Math.max(0, (t + 1) / 2 * G.amount));
+            r += (G.mix[0] - r) * k; g += (G.mix[1] - g) * k; b += (G.mix[2] - b) * k;
+          } else {
+            const k = 1 + t * G.amount;
+            r = Math.min(255, Math.max(0, r * k)); g = Math.min(255, Math.max(0, g * k)); b = Math.min(255, Math.max(0, b * k));
+          }
+        }
+      }
+      if (s.rec) { s.rec.add(w, n, s.glow, r, g, b, nx / length, ny / length, nz / length); return; }
       if (!s.glow) {
         const toward = -(nx * sun[0] + ny * sun[1] + nz * sun[2]) / length;
         const k = .72 + (toward > 0 ? toward : 0) * .28;
@@ -33623,24 +33887,48 @@ const gameObjects = (() => {
       s.face(w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], r, g, b);
       if (n === 4) s.face(w[0], w[1], w[2], w[6], w[7], w[8], w[9], w[10], w[11], r, g, b);
     }
-    function tri(s, at, ax, ay, az, bx, by, bz, cx, cy, cz) {
+    function tri(s, at, ax, ay, az, bx, by, bz, cx, cy, cz, splits = s.grain ? s.grain.splits : 0) {
+      if (splits > 0) {
+        // Four triangles off the edges' midpoints, wound as the whole was.
+        const abx = (ax + bx) / 2, aby = (ay + by) / 2, abz = (az + bz) / 2;
+        const bcx = (bx + cx) / 2, bcy = (by + cy) / 2, bcz = (bz + cz) / 2;
+        const cax = (cx + ax) / 2, cay = (cy + ay) / 2, caz = (cz + az) / 2;
+        tri(s, at, ax, ay, az, abx, aby, abz, cax, cay, caz, splits - 1);
+        tri(s, at, abx, aby, abz, bx, by, bz, bcx, bcy, bcz, splits - 1);
+        tri(s, at, cax, cay, caz, bcx, bcy, bcz, cx, cy, cz, splits - 1);
+        tri(s, at, abx, aby, abz, bcx, bcy, bcz, cax, cay, caz, splits - 1);
+        return;
+      }
       const m = s.m;
-      put(m, at, 0, ax, ay, az);
-      if (m[at + 12] < 0) { put(m, at, 3, cx, cy, cz); put(m, at, 6, bx, by, bz); }
-      else { put(m, at, 3, bx, by, bz); put(m, at, 6, cx, cy, cz); }
+      putLit(s, at, 0, ax, ay, az);
+      if (m[at + 12] < 0) { putLit(s, at, 3, cx, cy, cz); putLit(s, at, 6, bx, by, bz); }
+      else { putLit(s, at, 3, bx, by, bz); putLit(s, at, 6, cx, cy, cz); }
       finish(s, 3);
     }
     // A quad is two faces lit as one, off its first three corners, as worldQuad
     // does. A corner on an axis (a revolve's cap) makes it a triangle.
-    function quad(s, at, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz) {
+    function quad(s, at, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, splits = s.grain ? s.grain.splits : 0) {
       const same = (x1, y1, z1, x2, y2, z2) => x1 === x2 && y1 === y2 && z1 === z2;
       if (same(ax, ay, az, bx, by, bz)) return tri(s, at, ax, ay, az, cx, cy, cz, dx, dy, dz);
       if (same(bx, by, bz, cx, cy, cz) || same(cx, cy, cz, dx, dy, dz)) return tri(s, at, ax, ay, az, bx, by, bz, dx, dy, dz);
       if (same(dx, dy, dz, ax, ay, az)) return tri(s, at, ax, ay, az, bx, by, bz, cx, cy, cz);
+      if (splits > 0) {
+        // Four quads about the middle, wound as the whole was.
+        const abx = (ax + bx) / 2, aby = (ay + by) / 2, abz = (az + bz) / 2;
+        const bcx = (bx + cx) / 2, bcy = (by + cy) / 2, bcz = (bz + cz) / 2;
+        const cdx = (cx + dx) / 2, cdy = (cy + dy) / 2, cdz = (cz + dz) / 2;
+        const dax = (dx + ax) / 2, day = (dy + ay) / 2, daz = (dz + az) / 2;
+        const ox = (ax + bx + cx + dx) / 4, oy = (ay + by + cy + dy) / 4, oz = (az + bz + cz + dz) / 4;
+        quad(s, at, ax, ay, az, abx, aby, abz, ox, oy, oz, dax, day, daz, splits - 1);
+        quad(s, at, abx, aby, abz, bx, by, bz, bcx, bcy, bcz, ox, oy, oz, splits - 1);
+        quad(s, at, ox, oy, oz, bcx, bcy, bcz, cx, cy, cz, cdx, cdy, cdz, splits - 1);
+        quad(s, at, dax, day, daz, ox, oy, oz, cdx, cdy, cdz, dx, dy, dz, splits - 1);
+        return;
+      }
       const m = s.m;
-      put(m, at, 0, ax, ay, az);
-      if (m[at + 12] < 0) { put(m, at, 3, dx, dy, dz); put(m, at, 6, cx, cy, cz); put(m, at, 9, bx, by, bz); }
-      else { put(m, at, 3, bx, by, bz); put(m, at, 6, cx, cy, cz); put(m, at, 9, dx, dy, dz); }
+      putLit(s, at, 0, ax, ay, az);
+      if (m[at + 12] < 0) { putLit(s, at, 3, dx, dy, dz); putLit(s, at, 6, cx, cy, cz); putLit(s, at, 9, bx, by, bz); }
+      else { putLit(s, at, 3, bx, by, bz); putLit(s, at, 6, cx, cy, cz); putLit(s, at, 9, dx, dy, dz); }
       finish(s, 4);
     }
     // Sides asked for (at least `least`), or picked by radius and level — the
@@ -33683,7 +33971,194 @@ const gameObjects = (() => {
       capsule: (s, at, v) => rod(s, at, v, v[6], v.length > 7 ? v[7] : 6),
       // (line x1 y1 z1 x2 y2 z2 [width]) — a thin three-sided rod.
       line: (s, at, v) => rod(s, at, v, v.length > 6 ? v[6] : 1.5, 3),
+      // (tube [sides] w [w2] x y z x y z …) — a round tube through the points,
+      // smoothed (Catmull-Rom), w wide, tapering to w2. The count before the
+      // points says which: one is w, two are w w2, three are sides w w2.
+      tube: (s, at, v) => tube(s, at, v),
+      // (patch [segments] x y z ×16) — a bicubic Bézier surface over four rows
+      // of four control points. Faces face the way the first row crosses the
+      // first column (∂u × ∂v); list the rows the other way to flip them.
+      patch: (s, at, v) => patch(s, at, v),
+      // (orb x y z r [sides]) — a lit sphere; sides by radius and level unless given.
+      orb: (s, at, v) => orb(s, at, v),
+      // (bend x1 y1 z1 x2 y2 z2 l1 l2 hx hy hz w [sides]) — a two-piece limb from
+      // a to b, l1 then l2 long, its middle joint bent toward the hint: two rods.
+      // Out of reach, it straightens. A leg is one of these from hip to foot.
+      bend: (s, at, v) => bend(s, at, v),
     };
+
+    // A sphere as rings of quads, pole to pole; a pole's ring collapses to a
+    // point exactly, so its quads come out as triangles.
+    function orb(s, at, v) {
+      const x = v[0], y = v[1], z = v[2], r = v[3], n = sidesFor(s, r, v, 4, 4), rings = Math.max(2, Math.round(n / 2));
+      const P = (i, j) => {
+        const phi = -Math.PI / 2 + i / rings * Math.PI, cp = i === 0 || i === rings ? 0 : Math.cos(phi), th = j / n * Math.PI * 2;
+        return [x + r * cp * Math.cos(th), y + r * Math.sin(phi), z + r * cp * Math.sin(th)];
+      };
+      for (let i = 0; i < rings; i++)
+        for (let j = 0; j < n; j++) {
+          const a = P(i, j), b = P(i + 1, j), c = P(i + 1, (j + 1) % n), d = P(i, (j + 1) % n);
+          quad(s, at, a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2]);
+        }
+    }
+
+    // The joint of a two-piece limb, by the law of cosines: its reach along a→b
+    // and its lift off that line, lifted toward the hint's part off the line.
+    function bendJoint(ax, ay, az, bx, by, bz, l1, l2, hx, hy, hz) {
+      let dx = bx - ax, dy = by - ay, dz = bz - az;
+      const d = Math.hypot(dx, dy, dz) || 1e-9;
+      dx /= d; dy /= d; dz /= d;
+      const p = d >= l1 + l2 ? d * l1 / (l1 + l2) : (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+      const lift = Math.sqrt(Math.max(0, l1 * l1 - p * p));
+      hx -= ax; hy -= ay; hz -= az;
+      const along = hx * dx + hy * dy + hz * dz;
+      hx -= along * dx; hy -= along * dy; hz -= along * dz;
+      let hm = Math.hypot(hx, hy, hz);
+      if (hm < 1e-6) {   // no hint off the line: any direction across it
+        hx = -dy; hy = dx; hz = 0;
+        if (Math.abs(dz) > .9) { hx = 0; hy = -dz; hz = dy; }
+        hm = Math.hypot(hx, hy, hz);
+      }
+      return [ax + dx * p + hx / hm * lift, ay + dy * p + hy / hm * lift, az + dz * p + hz / hm * lift];
+    }
+    function bend(s, at, v) {
+      const [kx, ky, kz] = bendJoint(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10]);
+      const w = v[11], sides = v.length > 12 ? v[12] : 6;
+      rod(s, at, [v[0], v[1], v[2], kx, ky, kz], w, sides);
+      rod(s, at, [kx, ky, kz, v[3], v[4], v[5]], w, sides);
+    }
+
+    // A smooth tube: the points are a Catmull-Rom spline, sampled per span by
+    // level (4, 2, 1 segments), each sample framed by parallel transport so the
+    // tube never twists, ringed, and the rings quaded as `rod` does, capped.
+    function tube(s, at, v) {
+      const lead = v.length % 3 || 3, n = (v.length - lead) / 3;
+      if (n < 2) return;
+      const w0 = v[lead - (lead === 3 ? 2 : lead)], w1 = lead === 1 ? w0 : v[lead - 1];
+      const sides = lead === 3 ? Math.max(3, Math.floor(v[0])) : sidesFor(s, Math.max(w0, w1) / 2, [], 0);
+      const segs = n === 2 ? 1 : [4, 2, 1][s.v[detailSlot]];
+      const P = (i) => { const k = Math.min(n - 1, Math.max(0, i)) * 3 + lead; return [v[k], v[k + 1], v[k + 2]]; };
+      // Samples: a centre and a tangent each.
+      const C = [], D = [];
+      for (let k = 0; k < n - 1; k++) {
+        const [p0, p1, p2, p3] = [P(k - 1), P(k), P(k + 1), P(k + 2)];
+        for (let j = 0; j < segs + (k === n - 2 ? 1 : 0); j++) {
+          const t = j / segs, t2 = t * t, t3 = t2 * t, c = [], d = [];
+          for (let i = 0; i < 3; i++) {
+            const a = -p0[i] + p2[i], b = 2 * p0[i] - 5 * p1[i] + 4 * p2[i] - p3[i], e = -p0[i] + 3 * p1[i] - 3 * p2[i] + p3[i];
+            c.push(.5 * (2 * p1[i] + a * t + b * t2 + e * t3));
+            d.push(.5 * (a + 2 * b * t + 3 * e * t2));
+          }
+          if (Math.hypot(...d) < 1e-9) for (let i = 0; i < 3; i++) d[i] = p2[i] - p1[i];
+          C.push(c); D.push(d);
+        }
+      }
+      const unit = (a) => { const l = Math.hypot(...a) || 1; return a.map((x) => x / l); };
+      const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+      const across = (d) => unit(Math.abs(d[2]) > .9 ? [0, -d[2], d[1]] : [-d[1], d[0], 0]);
+      let u = null;
+      const rings = [];
+      for (let i = 0; i < C.length; i++) {
+        const d = unit(D[i]);
+        if (!u) u = across(d);
+        else {
+          const dot = u[0] * d[0] + u[1] * d[1] + u[2] * d[2];
+          const next = [u[0] - dot * d[0], u[1] - dot * d[1], u[2] - dot * d[2]];
+          u = Math.hypot(...next) < 1e-6 ? across(d) : unit(next);
+        }
+        const w = cross(d, u), r = (w0 + (w1 - w0) * i / (C.length - 1)) / 2, ring = [];
+        for (let k = 0; k < sides; k++) {
+          const a = k / sides * Math.PI * 2, ca = Math.cos(a) * r, sa = Math.sin(a) * r;
+          ring.push([C[i][0] + u[0] * ca + w[0] * sa, C[i][1] + u[1] * ca + w[1] * sa, C[i][2] + u[2] * ca + w[2] * sa]);
+        }
+        rings.push(ring);
+      }
+      for (let i = 0; i + 1 < rings.length; i++)
+        for (let k = 0; k < sides; k++) {
+          const a = rings[i][k], b = rings[i][(k + 1) % sides], c = rings[i + 1][(k + 1) % sides], d = rings[i + 1][k];
+          quad(s, at, a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2]);
+        }
+      const cap = (i, flip) => {
+        const o = C[i], ring = rings[i];
+        for (let k = 0; k < sides; k++) {
+          const a = ring[k], b = ring[(k + 1) % sides];
+          if (flip) tri(s, at, o[0], o[1], o[2], b[0], b[1], b[2], a[0], a[1], a[2]);
+          else tri(s, at, o[0], o[1], o[2], a[0], a[1], a[2], b[0], b[1], b[2]);
+        }
+      };
+      cap(0, true);
+      cap(rings.length - 1, false);
+    }
+
+    // A bicubic Bézier patch, quaded on a grid picked by level (6, 4, 2 a side).
+    function patch(s, at, v) {
+      const lead = v.length - 48, segs = lead > 0 ? Math.max(1, Math.floor(v[0])) : [6, 4, 2][s.v[detailSlot]];
+      const B = (t) => { const m = 1 - t; return [m * m * m, 3 * t * m * m, 3 * t * t * m, t * t * t]; };
+      const grid = [];
+      for (let i = 0; i <= segs; i++) {
+        const bv = B(i / segs), row = [];
+        for (let j = 0; j <= segs; j++) {
+          const bu = B(j / segs), p = [0, 0, 0];
+          for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+            const k = bv[r] * bu[c], o = lead + (r * 4 + c) * 3;
+            p[0] += v[o] * k; p[1] += v[o + 1] * k; p[2] += v[o + 2] * k;
+          }
+          row.push(p);
+        }
+        grid.push(row);
+      }
+      for (let i = 0; i < segs; i++)
+        for (let j = 0; j < segs; j++) {
+          const a = grid[i][j], b = grid[i][j + 1], c = grid[i + 1][j + 1], d = grid[i + 1][j];
+          quad(s, at, a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2]);
+        }
+    }
+
+    // ——— procedural surface: the noise grain, mottle and rough sample ———
+    // Value noise on an integer lattice, −1 to 1, plain arithmetic so every host
+    // that runs the compiler bakes the same faces.
+    function lattice(x, y, z) {
+      let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(z, 1013904223)) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    }
+    function noise(x, y, z) {
+      const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z);
+      let fx = x - x0, fy = y - y0, fz = z - z0;
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); fz = fz * fz * (3 - 2 * fz);
+      const c = (dx, dy, dz) => lattice(x0 + dx, y0 + dy, z0 + dz);
+      const a = c(0, 0, 0) + (c(1, 0, 0) - c(0, 0, 0)) * fx, b = c(0, 1, 0) + (c(1, 1, 0) - c(0, 1, 0)) * fx;
+      const d = c(0, 0, 1) + (c(1, 0, 1) - c(0, 0, 1)) * fx, e = c(0, 1, 1) + (c(1, 1, 1) - c(0, 1, 1)) * fx;
+      const near = a + (b - a) * fy, far = d + (e - d) * fy;
+      return (near + (far - near) * fz) * 2 - 1;
+    }
+    // A grain, mottle or rough scope: its numbers, and the frame it opened in,
+    // inverted, so noise is sampled in that frame's own units wherever the
+    // faces inside end up — baked parts and moving ones alike.
+    function surfaceScope(s, at, v, kind, splitsGiven) {
+      const m = s.m, o = kind === "mottle" ? 3 : 0;
+      const amount = v[o], scale = v.length > o + 1 && v[o + 1] > 0 ? v[o + 1] : 6;
+      const splits = kind === "rough" ? 0 : splitsGiven ? Math.max(0, Math.floor(v[o + 2])) : (s.v[detailSlot] ? 0 : 1);
+      const a = m[at + 3], b = m[at + 6], c = m[at + 9], d = m[at + 4], e = m[at + 7], f = m[at + 10];
+      const g = m[at + 5], h = m[at + 8], i = m[at + 11];
+      const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+      const inv = Math.abs(det) < 1e-12 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : [
+        (e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+        (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+        (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det];
+      return { amount, scale, splits, ownSplits: splits, inner: null, mix: kind === "mottle" ? [v[0], v[1], v[2]] : null,
+        origin: [m[at], m[at + 1], m[at + 2]], inv };
+    }
+    // A placed point (world[o…], or the x y z given) back in the scope's frame,
+    // in noise cells: into `sampled`, and returned.
+    const sampled = [0, 0, 0];
+    function sampleAt(G, o, _, x = world[o], y = world[o + 1], z = world[o + 2]) {
+      const dx = x - G.origin[0], dy = y - G.origin[1], dz = z - G.origin[2], I = G.inv, k = 1 / G.scale;
+      sampled[0] = (I[0] * dx + I[1] * dy + I[2] * dz) * k;
+      sampled[1] = (I[3] * dx + I[4] * dy + I[5] * dz) * k;
+      sampled[2] = (I[6] * dx + I[7] * dy + I[8] * dz) * k;
+      return sampled;
+    }
 
     // A closed (radius, height) profile turned about an axis. Walked either way:
     // it is turned counter-clockwise (radius right, height up) so faces face out.
@@ -34262,7 +34737,7 @@ const gameObjects = (() => {
       }
       out.outline(0, 0, 0, 0);
     }
-    return { objectInputs, figureJoints, figurePalette, objectLevels, objectLight, read, compile, figureFrameOf, figureLimbFrames, figureHeadBasis, drawFigureShapes };
+    return { objectInputs, figureJoints, figurePalette, objectLevels, objectLight, read, compile, bendJoint, noise, figureFrameOf, figureLimbFrames, figureHeadBasis, drawFigureShapes };
   })();
   const owLisp = (() => {
     // ow.mjs — the .ow package: an oskiewar level, objects, or both, in one text
