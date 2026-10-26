@@ -15,7 +15,7 @@ import * as Hud from './lib/hud.mjs';
 import * as M from './lib/mesh.mjs';
 import { bigWidth, bigWrite } from './lib/bigtext.mjs';
 import { clamp, lerp, angleLerp } from './lib/util.mjs';
-import { motionState, stepMotion } from './lib/motion.mjs';
+import { motionState, stepMotion, railAdvance } from './lib/motion.mjs';
 import { updateAutoAim } from './lib/targeting.mjs';
 
 // A long lens, close behind: enemies fill the frame instead of dotting it.
@@ -170,7 +170,7 @@ function mapSim(api, inp, press) {
     const h = pick(c.x, c.y);
     if (h >= 0) { map.sel = h; closeMap(api, true); return; }
   }
-  if (press('X') || press('A') || press('RightShoulder')) { closeMap(api, true); return; }
+  if (press('X') || press('A') || press('RightTrigger') || inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter') || inp.pressed.has('Space')) { closeMap(api, true); return; }
   if (inp.pressed.has('KeyM') || press('Y') || press('View') || press('B') || press('Menu')) closeMap(api, false);
 }
 
@@ -182,7 +182,7 @@ function cycleCamera(api, d) {
 
 // ── Outdoors ─────────────────────────────────────────────────────────────
 function advanceRail(api) {
-  S.s += S.speed;
+  S.s += railAdvance(S.player, S.speed);
   while (S.s >= Rail.edgeLen(S.edge)) {
     S.s -= Rail.edgeLen(S.edge);
     const node = Rail.endNode(S.edge, S.dir);
@@ -242,25 +242,26 @@ function playerSim(api, inp, press) {
   const pad = inp.pad;
   ix ||= pad.leftX;
   iy ||= pad.leftY;
-  const mod = inp.held.has('ShiftLeft') || inp.held.has('ShiftRight') || held('LeftShoulder');
-  const modTap = inp.pressed.has('ShiftLeft') || inp.pressed.has('ShiftRight') || press('LeftShoulder');
-  const dirTap = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].some(press);
+  // BOOST: Space, right click, L2 (LeftTrigger). BRAKE: C, PS X / Nintendo B /
+  // Xbox A. JUMP: U, PS O / Nintendo A / Xbox B.
+  const boost = inp.pressed.has('Space') || inp.mouse.boost || press('LeftTrigger');
+  const boostHeld = inp.held.has('Space') || inp.mouse.boostHeld || held('LeftTrigger');
   const event = stepMotion(p, {
-    x: ix, y: iy, jump: press('B') || inp.pressed.has('Space'),
-    roll: press('A') || press('LeftStick'), boost: mod,
-    dash: mod && (dirTap || modTap),
+    x: ix, y: iy, jump: press('B') || inp.pressed.has('KeyU'),
+    boost, boostHeld, brake: inp.held.has('KeyC') || held('A'),
   }, { yaw: S.camYaw, lateral: LATERAL, ceiling: CEILING, originY: S.O[1], floorAt });
   if (event.jump) api.drum(event.jump === 'hover' ? 'bell' : 'whoosh', 1.2);
-  if (event.dash) {
-    const length = Math.hypot(ix, iy) || 1;
-    const dx = ix / length, dy = Math.hypot(ix, iy) > .2 ? iy / length : 1;
-    const forward = p.motion === 'hover' ? 0 : dy;
+  if (event.boost) {
+    const length = Math.hypot(ix, iy) || 1, moving = Math.hypot(ix, iy) > .2;
+    const dx = moving ? ix / length : 0, dy = moving ? iy / length : 1;
+    const forward = p.motion === 'hover' && moving ? 0 : dy;
     S.dashDir = [-Math.sin(S.camYaw) * dx + Math.cos(S.camYaw) * forward,
-      Math.cos(S.camYaw) * dx + Math.sin(S.camYaw) * forward, p.motion === 'hover' ? dy : 0];
-    api.drum('whoosh', 1.7, ix * .7);
+      Math.cos(S.camYaw) * dx + Math.sin(S.camYaw) * forward, p.motion === 'hover' && moving ? dy : 0];
+    api.drum('whoosh', 1.9, dx * .7);
+    api.drum('kick', 1.2);
     api.drum('hat', 1);
   }
-  if (event.roll) api.drum('whoosh', 1.1);
+  if (event.brake) api.drum('block', 1.1);
   if (p.inv > 0) p.inv--;
   Facility.playerObstacles(S, api);
 }
@@ -294,7 +295,9 @@ function weaponSim(api, inp, press) {
   // held for a few frames rather than dropped.
   Combat.updateLock(S, fr);
   if (p.fireCd > 0) p.fireCd--;
-  if (press('X') || press('RightShoulder') || inp.mouse.clicks.length) p.fireBuf = 8;
+  // Fire: R2 (RightTrigger), Square / Nintendo Y / Xbox X, click, Enter.
+  if (press('RightTrigger') || press('X') || inp.mouse.clicks.length ||
+      inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter')) p.fireBuf = 8;
   if (p.fireBuf > 0) {
     p.fireBuf--;
     if (p.fireCd <= 0) { p.fireCd = 7; p.fireBuf = 0; Combat.fire(S, api, fr); }
@@ -400,7 +403,8 @@ export function sim(api) {
     return;
   }
   const press = b => down.has(b) && !prevDown.has(b);
-  const pauseKey = inp.pressed.has('Enter') || inp.pressed.has('NumpadEnter') || press('Menu');
+  // Enter fires during play, so pausing is Esc / P / Start.
+  const pauseKey = press('Menu') || inp.pressed.has('KeyP');
 
   // Pause stops the whole loop: nothing advances, not even the clock, until
   // Enter / Start again or "resume".
@@ -434,8 +438,9 @@ export function sim(api) {
     } else if (map.open) mapSim(api, inp, press);
     map.t = clamp(map.t + (map.open ? 1 : -1) / 36, 0, 1);
     if (!map.open && map.t < .2) {
-      if (inp.pressed.has('KeyQ') || press('LeftTrigger')) cycleCamera(api, -1);
-      if (inp.pressed.has('KeyE') || press('RightTrigger')) cycleCamera(api, 1);
+      // Turn: Q / Left Shift / L1 left, E / Right Shift / R1 right.
+      if (inp.pressed.has('KeyQ') || inp.pressed.has('ShiftLeft') || press('LeftShoulder')) cycleCamera(api, -1);
+      if (inp.pressed.has('KeyE') || inp.pressed.has('ShiftRight') || press('RightShoulder')) cycleCamera(api, 1);
       S.camYaw = lerp(S.camYaw, S.camYawTarget, .16);
       if (outdoors) advanceRail(api);
       else {
@@ -485,7 +490,6 @@ function drawPlayer(fr) {
   const run = S.t * .32, air = clamp((p.y - p.groundY) / 60, 0, 1);
   const sw = Math.sin(run) * .75 * (1 - air * .75);
   let B = M.yawBasis(P, S.heading);
-  if (p.roll > 0) B = M.pitchAround(B, 0, 90, 0, (1 - p.roll / 24) * Math.PI * 2);
   const base = 0;
   const faces = [];
   const jacket = [214, 52, 64], pants = [40, 46, 76], skin = [240, 198, 160], dark = [34, 36, 48];
@@ -575,7 +579,7 @@ export function paint(api) {
     const { items, enabled } = menuItems();
     Title.drawMenu(api, menuLayout(api), S.sel, enabled, S.t, true);
     const { width: w, height: h } = api.view();
-    const foot = 'space jump / hover / leap   k roll   f auto lock   q e camera   click or j shoot   enter pause';
+    const foot = 'wasd move   space boost   c brake   u jump   q e / shifts turn   ijkl or mouse aim   enter or click shoot   esc pause';
     api.write(foot, w / 2 - api.textWidth(foot, 24) / 2, h - 46, 24, 240, 246, 255);
     if (S.controllerStatus) api.write(S.controllerStatus, 30, h - 82, 24, 255, 236, 120);
   } else if (S.mode === 'over') drawOver(api);
@@ -589,6 +593,6 @@ function drawPause(api) {
   bigWrite(api, 'paused', w / 2 - bigWidth('paused', px) / 2, h * .27, px, [255, 236, 120], [6, 4, 12]);
   const { enabled } = menuItems();
   Title.drawMenu(api, menuLayout(api), S.sel, enabled, S.t, false);
-  const foot = 'enter or start to resume';
+  const foot = 'esc, p or start to resume';
   api.write(foot, w / 2 - api.textWidth(foot, 24) / 2, h * .8, 24, 220, 230, 245);
 }

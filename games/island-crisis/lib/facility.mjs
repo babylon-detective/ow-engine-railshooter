@@ -16,19 +16,25 @@ import * as Combat from './combat.mjs';
 import * as Overlay from './overlay.mjs';
 import { rng } from './util.mjs';
 import { project } from './render.mjs';
+import { railAdvance } from './motion.mjs';
 
 export const HALL = { W: 440, H: 640, Z0: -2400, END: 9200 };
 export const HANGAR = { W: 2600, H: 1500, Z0: 9200, EXIT: 17000, END: 17800, DOOR: 1300 };
 const HALL_BOX = [620, 950, 240, 120, 400];
 const HANGAR_DRONES = [700, 1100, 650, 160, 620];
 export const QNAME = ['front', 'right', 'behind', 'left'];
-export const HURDLES = [{ z: 1100, height: 70 }, { z: 5500, height: 70 }];
+export const HURDLES = [{ z: 1000, height: 70 }, { z: 3900, height: 70 }];
 
+// Each switch sits ~1100 before its door (and comes into view ~570 before
+// that). A shot switch holds the door open for GATE_HOLD ticks, then it
+// shuts again: cruising covers ~1000 in that time, three boosts ~2000, so
+// the lesson is BOOST straight after the shot.
+export const GATE_HOLD = 200;
 const GATES = [
-  { door: 3000, sw: [HALL.W - 6, 290, 2800], face: [-1, 0, 0], need: 1,
-    fin: [HALL.W - 210, HALL.W, 0, HALL.H, 2600, 2650], warnAt: 700, nudgeAt: 1700, where: 'on the right wall' },
-  { door: 6400, sw: [-HALL.W + 6, 290, 6200], face: [1, 0, 0], need: 3,
-    fin: [-HALL.W, -HALL.W + 210, 0, HALL.H, 6000, 6050], warnAt: 4500, nudgeAt: 5100, where: 'on the left wall' },
+  { door: 3000, sw: [HALL.W - 6, 290, 1900], face: [-1, 0, 0], need: 1,
+    fin: [HALL.W - 210, HALL.W, 0, HALL.H, 1700, 1750], warnAt: 1100, nudgeAt: 1300, where: 'on the right wall' },
+  { door: 6400, sw: [-HALL.W + 6, 290, 5300], face: [1, 0, 0], need: 3,
+    fin: [-HALL.W, -HALL.W + 210, 0, HALL.H, 5100, 5150], warnAt: 4400, nudgeAt: 4700, where: 'on the left wall' },
   { door: 9000, sw: [HALL.W - 110, 270, 7856], face: [0, 0, 1], need: 2,
     fin: [HALL.W - 220, HALL.W, 0, HALL.H, 7800, 7850], warnAt: 7200, nudgeAt: 7950, where: 'behind you' },
 ];
@@ -137,7 +143,8 @@ export function start(S, stage) {
   S.z = stage === 'hall' ? 0 : HANGAR.Z0 + 100;
   S.O = [0, 0, S.z];
   S.heading = 0;
-  S.gates = GATES.map(g => ({ ...g, hit: stage !== 'hall', open: stage !== 'hall' ? 1 : 0 }));
+  const done = stage !== 'hall';
+  S.gates = GATES.map(g => ({ ...g, hit: done, open: done ? 1 : 0, timer: 0, passed: done, scored: done }));
   S.script = { drones: 0, wave: -1, waveT: 0, gap: 90, exit: 0, enteredT: 0, obstacles: new Set() };
   S.speed = stage === 'hall' ? 3.4 : 3.4;
   S.level = { shot, aim, canTarget };
@@ -163,7 +170,7 @@ export function playerObstacles(S, api) {
     if (S.script.obstacles.has(hurdle.z) || !hitsHurdle(S.player, S.z, hurdle)) continue;
     S.script.obstacles.add(hurdle.z);
     Combat.hurt(S, 12, api);
-    S.toast = 'jump over low barriers: space or right face button'; S.toastT = 110;
+    S.toast = 'jump over low barriers: u or circle'; S.toastT = 110;
   }
 }
 
@@ -176,7 +183,7 @@ export function turnTo(from, to) {
   return d === 1 ? { keys: ['e'], dir: 'right' } : d === 3 ? { keys: ['q'], dir: 'left' } : d === 2 ? { keys: ['e', 'e'], dir: 'back' } : null;
 }
 
-function nextGate(S) { return S.gates.find(g => !g.hit) || null; }
+function nextGate(S) { return S.gates.find(g => !g.hit && !g.passed) || null; }
 
 // One tick of the indoor levels. Returns 'hangar' or 'island' when the
 // runner crosses into the next level.
@@ -188,26 +195,37 @@ export function step(S, api) {
     let speed = 3.4;
     if (g && S.z > g.nudgeAt) speed = 2.3;
     S.speed += (speed - S.speed) * .05;
-    S.z += S.speed;
-    for (const gt of S.gates) if (gt.hit && gt.open < 1) gt.open = Math.min(1, gt.open + 1 / 36);
+    S.z += railAdvance(p, S.speed);
+    for (const gt of S.gates) {
+      if (!gt.passed && S.z + Math.min(0, p.f) - 90 > gt.door) gt.passed = true;
+      if (gt.passed) { gt.open = Math.min(1, gt.open + 1 / 24); continue; }
+      if (gt.hit && --gt.timer <= 0) {
+        gt.hit = false;
+        S.toast = 'the door is shutting'; S.toastT = 90;
+        api.drum('gong', 1.2);
+      }
+      gt.open = gt.hit ? Math.min(1, gt.open + 1 / 24) : Math.max(0, gt.open - 1 / 24);
+    }
 
     for (const gt of S.gates) {
-      if (gt.open < .8 && S.z + Math.max(0, p.f) + 90 > gt.door) {
+      if (!gt.passed && gt.open < .8 && S.z + Math.max(0, p.f) + 90 > gt.door) {
         Combat.die(S, api, 'the door was sealed');
-        S.hint = 'the switch was ' + gt.where + '. turn the camera with ' + (gt.need === 1 ? 'e' : gt.need === 3 ? 'q' : 'e e');
+        S.hint = gt.scored
+          ? 'it only stays open a moment. boost right after the shot: space, right click or l2'
+          : 'the switch was ' + gt.where + '. turn the camera with ' + (gt.need === 1 ? 'e' : gt.need === 3 ? 'q' : 'e e');
         return null;
       }
     }
 
-    if (S.gates[0].hit && sc.drones === 0 && S.z > 3300) {
+    if (S.gates[0].scored && sc.drones === 0 && S.z > 3300) {
       sc.drones = 1;
       for (const lat of [-220, 220]) flyer(S, 'drone', 0, lat, HALL_BOX);
     }
-    if (S.gates[0].hit && sc.drones === 1 && S.z > 4200) {
+    if (S.gates[0].scored && sc.drones === 1 && S.z > 4200) {
       sc.drones = 2;
       for (const lat of [-240, 0, 240]) flyer(S, lat ? 'drone' : 'charger', 0, lat, HALL_BOX);
     }
-    if (S.gates[1].hit && sc.drones === 2 && S.z > 6700) {
+    if (S.gates[1].scored && sc.drones === 2 && S.z > 6700) {
       sc.drones = 3;
       for (const lat of [-200, 200]) flyer(S, 'drone', 0, lat, HALL_BOX);
     }
@@ -224,20 +242,27 @@ export function step(S, api) {
     }
 
     const front = S.enemies.filter(e => !e.dying && e.hp > 0);
-    if (S.z > 550 && S.z < 1200 || S.z > 5050 && S.z < 5600) S.nudge = { text: 'low barrier ahead. jump over it', keys: ['space'], dir: null };
-    else if (S.z < 600) S.nudge = { text: 'jump twice to hover. jump again to leap and land', keys: [], dir: null };
+    const held = S.gates.find(gt => gt.hit && !gt.passed);
+    const shutting = S.gates.find(gt => !gt.hit && gt.scored && !gt.passed);
+    if (held) {
+      const secs = (held.timer / 60).toFixed(1);
+      S.nudge = { text: 'door open ' + secs + 's. boost through!', keys: ['space'], dir: null, urgent: true };
+    } else if (shutting && S.z > shutting.door - 700) {
+      S.nudge = { text: 'door shut. brake and shoot the switch again', keys: ['c'], dir: null, urgent: true };
+    } else if (HURDLES.some(h => S.z > h.z - 550 && S.z < h.z)) S.nudge = { text: 'low barrier ahead. jump over it', keys: ['u'], dir: null };
+    else if (S.z < 450) S.nudge = { text: 'space boosts ahead. c brakes. u jumps, twice to hover', keys: [], dir: null };
     else if (g && S.z > g.nudgeAt) {
       const turn = turnTo(S.camDir, g.need);
       const sp = S.cam && project(S.cam, ...g.sw);
       const seen = Math.abs(S.camYaw - S.camYawTarget) < .08 && sp && sp.x > 60 && sp.x < S.cam.w - 60 && sp.y > 0 && sp.y < S.cam.h;
       S.nudge = turn
         ? { text: 'the switch is ' + g.where + '. turn', ...turn, urgent: true }
-        : seen ? { text: 'shoot the switch!   click or j', keys: [], dir: null, urgent: true }
+        : seen ? { text: 'shoot the switch!   click or enter', keys: [], dir: null, urgent: true }
           : { text: 'keep watching. it comes into view', keys: [], dir: null };
     } else if (front.length && S.camDir !== 0) {
       S.nudge = { text: 'enemies ahead. face front', ...turnTo(S.camDir, 0) };
     } else if (front.length && sc.drones === 1) {
-      S.nudge = { text: 'tap click or j to shoot. one shot, one kill', keys: [], dir: null };
+      S.nudge = { text: 'tap click or enter to shoot. one shot, one kill', keys: [], dir: null };
     } else if (g && S.z > g.warnAt) {
       S.nudge = { text: g.need === 2 ? 'switches hide everywhere. watch the walls' : 'a sealed door ahead. find its switch', keys: [], dir: null };
     } else if (S.camDir !== 0 && !front.length) {
@@ -252,7 +277,8 @@ export function step(S, api) {
     const stopAt = HANGAR.EXIT - 1700;
     const target = sc.exit < 1 ? (S.z > stopAt - 400 ? 0 : 3.4) : 6;
     S.speed += (target - S.speed) * .04;
-    S.z = sc.exit < 1 ? Math.min(stopAt, S.z + S.speed) : S.z + S.speed;
+    const step = S.z > stopAt - 400 && sc.exit < 1 ? S.speed : railAdvance(p, S.speed);
+    S.z = sc.exit < 1 ? Math.min(stopAt, S.z + step) : S.z + step;
 
     const alive = S.enemies.filter(e => e.wave === sc.wave && e.hp > 0 && !e.dying);
     if (sc.wave < WAVES.length && alive.length === 0 && !S.enemies.some(e => e.wave === sc.wave && e.dying)) {
@@ -323,8 +349,10 @@ function shot(S, api, b, pf, ps, pu, hit) {
     if (g.hit || S.camDir !== g.need) continue;
     if (!hit(toLocalZ(S, g.sw[2]), g.sw[0], g.sw[1], 120)) continue;
     g.hit = true;
-    S.score += 500;
-    S.toast = 'switch hit: door open'; S.toastT = 110;
+    g.timer = GATE_HOLD;
+    if (!g.scored) S.score += 500;
+    g.scored = true;
+    S.toast = 'switch hit: boost through!'; S.toastT = 110;
     api.drum('ding', 2);
     api.drum('bell', 1.6);
     api.drum('kick', 1.6);

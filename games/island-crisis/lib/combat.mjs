@@ -164,7 +164,7 @@ function explode(S, e, api) {
 
 export function hurt(S, dmg, api) {
   const p = S.player;
-  if (p.inv > 0 || p.roll > 0 || p.dash > 0 || S.mode !== 'play') return false;
+  if (p.inv > 0 || p.dash > 0 || S.mode !== 'play') return false;
   p.hp = Math.max(0, p.hp - dmg);
   p.inv = 70;
   S.shake = 18;

@@ -1,14 +1,17 @@
 import { emptyPad, stickDirections } from './gamepad.mjs';
 import { installControllerSetup, pollControllers, controllerSetupOpen, toggleControllerSetup } from './controller-setup.mjs';
 
+// Keyboard: WASD / arrows move, Space boosts, C brakes, U jumps, Enter
+// fires, Q / E or Left / Right Shift turn, IJKL aim, Esc or P pauses.
 const keyboard = { KeyW: 'ArrowUp', KeyS: 'ArrowDown', KeyA: 'ArrowLeft', KeyD: 'ArrowRight',
   ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
-  KeyI: 'Y', Escape: 'Menu', Tab: 'View' };
-const watched = new Set([...Object.keys(keyboard), 'KeyJ', 'KeyK', 'KeyL', 'KeyQ', 'KeyE', 'KeyM',
+  Escape: 'Menu', Tab: 'View' };
+const aimKeys = { KeyJ: [-1, 0], KeyL: [1, 0], KeyI: [0, 1], KeyK: [0, -1] };
+const watched = new Set([...Object.keys(keyboard), ...Object.keys(aimKeys), 'KeyU', 'KeyC', 'KeyP', 'KeyQ', 'KeyE', 'KeyM',
   'KeyG', 'KeyF', 'Space', 'Enter', 'NumpadEnter', 'ShiftLeft', 'ShiftRight']);
 const state = {
   held: new Set(), presses: [],
-  mouse: { u: .5, v: .5, moved: false, down: false, clicks: [] },
+  mouse: { u: .5, v: .5, moved: false, down: false, clicks: [], boosts: 0, boostHeld: false },
 };
 
 export function installInput() {
@@ -30,21 +33,29 @@ export function installInput() {
   addEventListener('blur', () => {
     state.held.clear(); state.presses.length = 0;
     state.mouse.down = false; state.mouse.clicks.length = 0;
+    state.mouse.boosts = 0; state.mouse.boostHeld = false;
   });
   const at = e => {
     state.mouse.u = e.clientX / innerWidth;
     state.mouse.v = e.clientY / innerHeight;
   };
   addEventListener('pointermove', e => { at(e); state.mouse.moved = true; });
+  addEventListener('contextmenu', e => {
+    if (!e.target.closest?.('#ic-controllers, #ic-controller-button')) e.preventDefault();
+  });
   addEventListener('pointerdown', e => {
-    if (e.button !== 0) return;
     if (e.target.closest?.('#ic-controllers, #ic-controller-button')) return;
+    if (e.button === 2) { state.mouse.boosts++; state.mouse.boostHeld = true; return; }
+    if (e.button !== 0) return;
     at(e);
     state.mouse.moved = true;
     state.mouse.down = true;
     state.mouse.clicks.push({ u: state.mouse.u, v: state.mouse.v });
   });
-  addEventListener('pointerup', e => { if (e.button === 0) state.mouse.down = false; });
+  addEventListener('pointerup', e => {
+    if (e.button === 0) state.mouse.down = false;
+    if (e.button === 2) state.mouse.boostHeld = false;
+  });
 }
 
 // One snapshot per sim tick: edges since the last tick, held keys, the pointer
@@ -58,19 +69,23 @@ export function readInput(api) {
     pad = { ...pad, ...emptyPad(), connected: pad.connected };
   } else if (!controllerSetupOpen()) {
     for (const [code, name] of Object.entries(keyboard)) if (state.held.has(code)) pad.down.add(name);
-    const punch = state.held.has('KeyJ'), kick = state.held.has('KeyK');
-    if (punch) pad.down.add('X');
-    if (kick) pad.down.add('A');
-    if (state.held.has('KeyL')) { pad.down.add('A'); pad.down.add('X'); }
+    let ax = 0, ay = 0;
+    for (const [code, [x, y]] of Object.entries(aimKeys)) if (state.held.has(code)) { ax += x; ay += y; }
+    if (ax || ay) {
+      const l = Math.hypot(ax, ay);
+      pad = { ...pad, rightX: ax / l, rightY: ay / l };
+    }
   }
   const snap = {
     pad, directions: stickDirections(pad), setupOpen: controllerSetupOpen(),
     pressed: new Set(blocked ? [] : state.presses), held: new Set(blocked ? [] : state.held),
     mouse: { x: m.u * width, y: m.v * height, moved: !blocked && m.moved, down: !blocked && m.down,
-      clicks: blocked ? [] : m.clicks.map(c => ({ x: c.u * width, y: c.v * height })) },
+      clicks: blocked ? [] : m.clicks.map(c => ({ x: c.u * width, y: c.v * height })),
+      boost: !blocked && m.boosts > 0, boostHeld: !blocked && m.boostHeld },
   };
   state.presses.length = 0;
   m.clicks.length = 0;
+  m.boosts = 0;
   m.moved = false;
   return snap;
 }

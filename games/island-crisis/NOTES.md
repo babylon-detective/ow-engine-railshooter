@@ -8,11 +8,15 @@
 1. **The hallway** (tutorial, slow). Three sealed doors. Each opens from a
    switch you can only see, and only hit, after turning the camera:
    right wall (E), left wall (Q), the back of a pillar you already passed
-   (E E). Reach a door still shut and you die ("sealed in"). Nudges at the
-   top of the screen name the keys, the compass slot flashes, and chevrons
-   point the way. Low 70-unit hurdles at z=1100 and z=5500 teach jumping;
-   running into one costs 12 HP, while clearing it is harmless. A few drones
-   teach tap fire. Doors still require their switches; jumping cannot bypass them.
+   (E E). Each switch sits ~1100 before its door, and a shot switch holds
+   the door open for only `GATE_HOLD` = 200 ticks (3.3 s, countdown in the
+   nudge) before it shuts again. Cruising covers ~1000 in that time, so you
+   must **BOOST** straight after the shot (three boosts ≈ 2000). If it shuts
+   on you, **BRAKE** to buy time and shoot the switch again; reach a shut
+   door and you die ("sealed in", with a hint to boost). The switch scores
+   500 once. Nudges name the keys, the compass slot flashes, and chevrons
+   point the way. Low 70-unit hurdles at z=1000 and z=3900 teach jumping;
+   running into one costs 12 HP. A few drones teach tap fire.
 2. **The hangar.** Wide room, five scripted waves of *slabs*, armoured
    plates the size of a screen panel, from the front, right, left, behind,
    then front and back together. The runner halts 1700 short of the exit so
@@ -37,8 +41,15 @@ does **retry** after a death.
 - **One shot, one kill.** A hit enemy flashes red and white for a moment,
   then bursts (red hit-marker on the reticle, bigger flash). The gunship
   takes 6.
-- Dash: hold Shift (LB) and tap a direction for a short untouchable burst.
-- Enter (Start) pauses the whole loop.
+- **BOOST** (Space / right click / L2): 22 untouchable ticks, ready again
+  after 36. With no direction held it drives forward in depth and surges the
+  rail 16 extra units a tick (~350 per boost): doors, falling rocks. With a
+  direction it bursts across the 2D plane (on the ground: steer plane; while
+  hovering: the screen plane).
+- **BRAKE** (hold C / PS X): rail speed × .35, the runner pulls back toward
+  the camera, and any boost surge is cancelled. For dodging things ahead,
+  buying time at a shutting door, or slowing down to pick another route.
+- Esc / P / Start pause the whole loop (Enter fires during play).
 
 ## Ground, jump, hover
 
@@ -51,10 +62,10 @@ Gravity advances only in `sim`; it freezes with pause and the route map.
 - First jump: a gravity-bound jump that can clear a low barrier.
 - Second jump press before landing: engage hover. Left/right move across
   the view; up/down raise/lower altitude. Releasing the stick holds height.
-  Dash and dodge also work while hovering.
+  Boost and brake also work while hovering.
 - Jump from hover: launch in the left-stick/WASD direction on the ground
   plane, with an upward impulse, then fall and land. With no direction held,
-  leap forward relative to the camera. Hold Shift/L1/L to boost this leap.
+  leap forward relative to the camera. Hold BOOST to power up this leap.
   Further jump presses cannot restore hover until the player lands.
 
 ## Aim modes and camera visibility
@@ -76,19 +87,25 @@ The title flyover and overhead map retain the full scenery.
 
 ## Controls
 
+PlayStation names; Nintendo / Xbox in brackets.
+
 | keyboard | pad | does |
 |---|---|---|
-| WASD | d-pad / left stick | steer; while hovering, up/down controls altitude |
-| Shift + direction | LB + direction | dash |
-| mouse / trackpad | right stick | aim the reticle |
-| F | R3 / right-stick click | toggle free aim / auto lock |
+| WASD / arrows | d-pad / left stick | steer; while hovering, up/down controls altitude |
+| Space / right click | L2 (ZL / LT) | **BOOST** (forward, or across the plane with a direction) |
+| C (hold) | Cross (Nintendo B / Xbox A) | **BRAKE** |
+| U | Circle (Nintendo A / Xbox B) | jump / hover / exit leap |
+| Enter / click | R2 (ZR / RT), also Square | fire (tap) |
+| Q / Left Shift | L1 (L / LB) | turn the camera 90° left |
+| E / Right Shift | R1 (R / RB) | turn the camera 90° right |
+| IJKL / mouse | right stick | aim the reticle |
+| F | R3 | toggle free aim / auto lock |
 | — | right-stick flick in auto mode | snap to another enemy center |
-| click / J | RB / X | fire (tap) |
-| Space | right face: PS Circle / Nintendo A / Xbox B | jump / hover / exit leap |
-| K | L3 or bottom face: PS X / Nintendo B / Xbox A | one dodge roll per press |
-| Q / E | LT / RT | turn the camera 90° |
-| M | View / Y | map (outdoors) |
-| Enter | Start | pause |
+| M | Select / Minus / View | map (outdoors) |
+| Esc / P | Start / Plus / Menu | pause |
+
+There is no dodge roll any more: BOOST is the untouchable move. K aims
+down (IJKL), so BRAKE lives on C.
 
 ### Joy-Cons on macOS / Brave
 
@@ -99,24 +116,24 @@ the browser exposes a controller. Hold the two halves upright.
 The game polls the browser directly, combines both halves into one player,
 and does not use the engine's fighting-game trigger aliases. Standard-layout
 controllers work automatically; individual Chromium Joy-Cons are rotated
-back from their sideways browser layout. The left stick moves, the right
-stick aims, L + direction dashes, R fires, ZL/ZR rotate the camera,
-Minus opens the map, and Plus starts/confirms menus or pauses gameplay.
-Right-stick click toggles auto aim; left-stick click dodges.
-Face-button positions follow the standard layout (Nintendo B = bottom,
-A = right, Y = left, X = top); R is the unambiguous fire button.
+back from their sideways browser layout (macOS may also expose the pair as
+one "Joy-Con (L/R)" standard pad, which maps directly). The left stick
+moves, the right stick aims, L / R turn, ZL boosts, ZR fires, B brakes,
+A jumps, Minus opens the map, Plus pauses, right-stick click toggles auto
+aim. Face-button positions follow the standard layout (Nintendo B = bottom,
+A = right, Y = left, X = top).
 
 Open **Controllers (G)** to see controller IDs, axes, and pressed button
 indices. If the browser reports an unknown/raw layout, use **Calibrate /
 remap** with both halves connected. Center all sticks before each Ready
 step, perform the requested action, then release it. Bindings are saved
 locally per device ID/layout, not by connection order. Skip controls you
-don't have; the left stick also navigates menus and initiates dash.
+don't have; the left stick also navigates menus.
 Closing cancels unfinished calibration; Use automatic mapping clears it.
 Opening setup pauses gameplay; resume afterwards with Plus or Enter.
-Older custom calibrations remain valid but do not have jump, L3, or R3
-bindings: recalibrate to add the three new prompts. Standard-layout pads
-and automatically paired Joy-Cons need no recalibration.
+Saved custom calibrations keep their physical buttons, but the actions
+moved (L2 boost, R2 fire, L1/R1 turn, X brake, O jump): recalibrate when
+the panel asks. Standard-layout pads and paired Joy-Cons need nothing.
 
 If the panel reports no devices, focus the game and press buttons again.
 Check Brave's site-specific fingerprinting protection for localhost; if it
@@ -146,7 +163,7 @@ does the screen flashes with CSS opacity (see WANTS.md).
 ## Files
 
 - `game.mjs`: modes (title / play / over / paused), camera, runner, menus, save
-- `lib/motion.mjs`: grounded movement, gravity, hover, directional leaps, dash/roll
+- `lib/motion.mjs`: grounded movement, gravity, hover, directional leaps, BOOST / BRAKE, rail surge
 - `lib/targeting.mjs`: nearest visible targets, directional flick selection, center tracking
 - `lib/facility.mjs`: hallway and hangar geometry, gates and switches, waves, nudges
 - `lib/title.mjs`: track flyover camera, wordmark, menu layout
@@ -163,4 +180,4 @@ does the screen flashes with CSS opacity (see WANTS.md).
 ## Next
 
 - More island set pieces (a boss per biome).
-- Teach dash with a scripted volley in the hallway.
+- Collapsing rocks on the island that only BOOST outruns.

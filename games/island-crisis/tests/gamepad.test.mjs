@@ -12,7 +12,7 @@ const standard = pad('Xbox', 'standard', 5);
 press(standard, 6, 7);
 let result = readPads([null, standard]);
 check(result.down.has('LeftTrigger') && result.down.has('RightTrigger'), 'Triggers survive sparse controller indices');
-check(!result.down.has('A') && !result.down.has('X'), 'Camera triggers do not also roll or shoot');
+check(!result.down.has('A') && !result.down.has('X'), 'Boost and fire triggers do not also brake or jump');
 standard.axes = [.1, -.1, .1, -.1];
 check(readPads([standard]).leftX === 0 && readPads([standard]).rightY === 0, 'Stick drift is filtered');
 standard.axes = [.7, -1, 1, 1];

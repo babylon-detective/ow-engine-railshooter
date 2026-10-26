@@ -86,7 +86,7 @@ export function drawNudge(api, S) {
   if (!n) return;
   const { w, h } = S.cam, t = S.t;
   const pad = S.padConnected;
-  const keys = (n.keys || []).map(k => pad ? ({ e: 'rt', q: 'lt', m: 'view', space: 'jump' }[k] || k) : k);
+  const keys = (n.keys || []).map(k => pad ? ({ e: 'r1', q: 'l1', m: 'view', u: 'o', space: 'l2', c: 'x' }[k] || k) : k);
   const px = Math.max(3, Math.min(4.5, w / 420)), cap = px * 15;
   const tw = bigWidth(n.text, px);
   const kw = keys.reduce((sum, k) => sum + Math.max(cap, bigWidth(k, cap / 11) + cap / 11 * 5) + 16, 0);
@@ -174,8 +174,8 @@ export function drawHud(api, S, fr) {
   const status = aim + ' / ' + movement;
   api.write(status, w - api.textWidth(status, 24) - 30, h - 34, 24, ...(S.autoAim ? [255, 80, 100] : [120, 240, 255]));
   if (S.stageT < 900 && S.stage === 'hall') {
-    const lines = ['space / right face: jump, hover, leap   shift / l1: boost   k / l3: roll',
-      'f / r3: auto lock   q e / lt rt: camera   click / r: fire   enter / start: pause'];
+    const lines = ['space / l2 / right click: boost   c / x: brake   u / circle: jump, hover, leap',
+      'q e / shifts / l1 r1: turn   enter / click / r2: fire   ijkl: aim   f / r3: auto lock   esc: pause'];
     lines.forEach((l, i) => api.write(l, 30, h - 84 + i * 34, 26, 230, 236, 250));
   }
 
@@ -245,6 +245,6 @@ export function drawMap(api, S, fr, e) {
   const { w, h } = cam;
   api.box(0, 0, w, 96, 16, 18, 28);
   bigWrite(api, 'map: choose a path', 30, 26, 6, [255, 236, 140]);
-  const hint = 'a d or click to pick   j k or click to go   m to close';
+  const hint = 'a d or click to pick   enter or click to go   m to close';
   api.write(hint, w - api.textWidth(hint, 26) - 30, 34, 26, 220, 230, 245);
 }

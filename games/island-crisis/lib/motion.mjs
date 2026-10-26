@@ -1,10 +1,21 @@
 import { clamp } from './util.mjs';
 
 export const GRAVITY = .65;
+// BOOST: `time` ticks of untouchable burst, ready again after `cooldown`.
+// Without a direction it surges the runner `surge` extra units a tick along
+// the rail (time × surge ≈ 350 units per boost), which is what gets you
+// through a door before it shuts.
+export const BOOST = { time: 22, cooldown: 36, surge: 16 };
+export const BRAKE_SCALE = .35;
+
 export const motionState = () => ({
   f: 0, s: 0, u: 0, y: 0, groundY: 0, motion: 'ground',
-  va: 0, vd: 0, vu: 0, roll: 0, rollCd: 0, dash: 0, dashCd: 0,
+  va: 0, vd: 0, vu: 0, dash: 0, dashCd: 0, surge: 0, braking: false,
 });
+
+// How far the rail carries the runner this tick.
+export const railAdvance = (p, speed) =>
+  speed * (p.braking ? BRAKE_SCALE : 1) + (p.surge > 0 ? BOOST.surge : 0);
 
 // y is absolute world height; u is derived afterwards for rail-local combat.
 // Moving the rail up a slope must not add height to an airborne jump.
@@ -17,34 +28,40 @@ export function stepMotion(p, input, space) {
   const dx = moving ? x / Math.hypot(x, y) : 0;
   const dy = moving ? y / Math.hypot(x, y) : 1;
   const event = {};
-  for (const key of ['dash', 'dashCd', 'roll', 'rollCd']) if (p[key] > 0) p[key]--;
+  for (const key of ['dash', 'dashCd', 'surge']) if (p[key] > 0) p[key]--;
   if (input.jump) {
     if (p.motion === 'ground') {
       p.motion = 'jump'; p.vu = 15; event.jump = 'jump';
     } else if (p.motion === 'jump') {
       p.motion = 'hover'; p.vu = 7; event.jump = 'hover';
     } else if (p.motion === 'hover') {
-      p.motion = 'fall'; p.vu = input.boost ? 19 : 13;
-      p.va += dx * (input.boost ? 34 : 18);
-      p.vd += dy * (input.boost ? 34 : 18);
+      const big = input.boostHeld;
+      p.motion = 'fall'; p.vu = big ? 19 : 13;
+      p.va += dx * (big ? 34 : 18);
+      p.vd += dy * (big ? 34 : 18);
       event.jump = 'leap';
-      if (input.boost) { p.dash = 12; p.dashCd = 22; event.dash = true; }
+      if (big) { p.dash = BOOST.time; p.dashCd = BOOST.cooldown; event.boost = 'plane'; }
     }
   }
-  if (input.dash && moving && p.dashCd === 0 && event.jump !== 'leap') {
-    p.dash = 12; p.dashCd = 22;
-    p.va += dx * 32;
-    if (p.motion === 'hover') p.vu += dy * 26;
-    else p.vd += dy * 32;
-    event.dash = true;
+  if (input.boost && p.dashCd === 0 && event.jump !== 'leap') {
+    p.dash = BOOST.time; p.dashCd = BOOST.cooldown;
+    if (moving) {
+      // With a direction: a burst across the 2D plane.
+      p.va += dx * 32;
+      if (p.motion === 'hover') p.vu += dy * 26;
+      else p.vd += dy * 32;
+      event.boost = 'plane';
+    } else {
+      // Without one: forward in depth, and the rail surges ahead.
+      p.surge = BOOST.time;
+      p.vd += 26;
+      event.boost = 'forward';
+    }
   }
-  if (input.roll && p.rollCd === 0) {
-    p.roll = 24; p.rollCd = 50;
-    p.va += (moving ? dx : 1) * 16;
-    if (p.motion === 'hover') p.vu += (moving ? dy : 0) * 13;
-    else p.vd += (moving ? dy : 0) * 16;
-    event.roll = true;
-  }
+  // BRAKE: slow the rail and pull back towards the camera.
+  if (input.brake && !p.braking) event.brake = true;
+  p.braking = !!input.brake;
+  if (p.braking) { p.vd -= 1.8; p.surge = 0; }
   p.va = (p.va + x * 1.5) * .86;
   p.vd = (p.vd + (p.motion === 'hover' ? 0 : y * 1.5)) * .86;
   const right = [-Math.sin(yaw), Math.cos(yaw)], look = [Math.cos(yaw), Math.sin(yaw)];

@@ -6,12 +6,11 @@ const steps = [
   ['rightX', 'Move RIGHT stick RIGHT'], ['rightY', 'Move RIGHT stick UP'],
   ['ArrowUp', 'Press d-pad UP'], ['ArrowDown', 'Press d-pad DOWN'],
   ['ArrowLeft', 'Press d-pad LEFT'], ['ArrowRight', 'Press d-pad RIGHT'],
-  ['RightShoulder', 'Press R / fire'], ['A', 'Press B / dodge and confirm'],
-  ['LeftTrigger', 'Press ZL / camera left'], ['RightTrigger', 'Press ZR / camera right'],
-  ['LeftShoulder', 'Press L / dash'], ['View', 'Press Minus / map'],
-  ['Menu', 'Press Plus / pause'],
-  ['B', 'Press RIGHT face button / jump (Nintendo A, Xbox B, PlayStation Circle)'],
-  ['LeftStick', 'Click LEFT stick / dodge (L3)'],
+  ['RightTrigger', 'Press R2 / ZR / fire'], ['LeftTrigger', 'Press L2 / ZL / boost'],
+  ['LeftShoulder', 'Press L1 / L / turn left'], ['RightShoulder', 'Press R1 / R / turn right'],
+  ['A', 'Press BOTTOM face button / brake (PlayStation X, Nintendo B, Xbox A)'],
+  ['B', 'Press RIGHT face button / jump (PlayStation Circle, Nintendo A, Xbox B)'],
+  ['View', 'Press Select / Minus / map'], ['Menu', 'Press Start / Plus / pause'],
   ['RightStick', 'Click RIGHT stick / auto aim (R3)'],
 ];
 let profile = null, panel, status, prompt, next, skip, calibrate;
@@ -123,9 +122,9 @@ export function pollControllers() {
       p.axes.map(v => v.toFixed(2)).join(', ')} | buttons: ${
       p.buttons.flatMap((b, i) => buttonDown(b) ? [i] : []).join(', ') || 'none'}`).join('\n\n')
       : 'No controllers exposed. Click the game, then press a button on BOTH Joy-Cons.';
-    const missing = profile && ['B', 'LeftStick', 'RightStick'].filter(action => !profile.some(b => b.action === action));
+    const missing = profile && ['A', 'B', 'LeftTrigger', 'RightStick'].filter(action => !profile.some(b => b.action === action));
     status.textContent = [accessError, error, lines, pad.unsupported.length ? 'Unmapped controller detected: use Calibrate / remap.' : '',
-      missing?.length ? 'Recalibrate to add jump, L3 dodge, and R3 auto aim to older saved bindings.' : '',
+      missing?.length ? 'Recalibrate: the controls changed (L2 boost, R2 fire, L1/R1 turn, X brake, O jump, R3 auto aim).' : '',
       profile ? 'Saved custom mapping active.' : 'Automatic mapping: standard pads and upright Chromium Joy-Con pairs.'].filter(Boolean).join('\n\n');
     prompt.textContent = step < 0 ? 'Changes are saved in this browser. Closing cancels unfinished calibration.'
       : release ? 'Release that control to continue.'

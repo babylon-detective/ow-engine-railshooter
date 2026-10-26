@@ -1,4 +1,4 @@
-import { motionState, stepMotion } from '../lib/motion.mjs';
+import { motionState, stepMotion, railAdvance, BOOST, BRAKE_SCALE } from '../lib/motion.mjs';
 import { candidates, chooseTarget, updateAutoAim } from '../lib/targeting.mjs';
 import { makeCamera, Renderer } from '../lib/render.mjs';
 import { canTarget, hitsHurdle, HURDLES } from '../lib/facility.mjs';
@@ -30,19 +30,42 @@ for (let i = 0; i < 120; i++) tick(p);
 check(close(hoverY, p.y), 'Released controls maintain hover altitude');
 tick(p, { y: 1 });
 check(p.y > hoverY, 'Hover directional movement changes altitude');
-tick(p, { roll: true });
-check(p.roll > 0 && p.motion === 'hover', 'Dodge roll works while hovering');
 const ordinary = { ...p }, boosted = { ...p };
 tick(ordinary, { jump: true, x: -1 });
-tick(boosted, { jump: true, x: -1, boost: true });
+tick(boosted, { jump: true, x: -1, boostHeld: true });
 check(ordinary.motion === 'fall' && ordinary.va < 0 && ordinary.vu > 0, 'Third press makes directional leap');
-check(boosted.va < ordinary.va && boosted.vu > ordinary.vu && boosted.dash > 0, 'Modifier boosts the exit leap');
+check(boosted.va < ordinary.va && boosted.vu > ordinary.vu && boosted.dash > 0, 'Held boost powers up the exit leap');
 tick(boosted, { jump: true });
 check(boosted.motion === 'fall', 'Cannot re-enter hover before landing after an exit leap');
 for (let i = 0; i < 150; i++) tick(boosted);
 check(boosted.motion === 'ground' && boosted.y === 0, 'Boosted exit eventually lands');
 tick(boosted, { jump: true });
 check(boosted.motion === 'jump', 'Landing resets the jump cycle');
+
+// BOOST and BRAKE
+p = motionState();
+tick(p, { boost: true });
+check(p.surge === BOOST.time && p.dash > 0 && p.vd > 0, 'Boost without direction surges forward in depth');
+let travel = 0;
+for (let i = 0; i < BOOST.time; i++) { travel += railAdvance(p, 3.4); tick(p); }
+check(travel > 3.4 * BOOST.time + 300, 'Forward boost carries the runner ~350 extra rail units');
+tick(p, { boost: true });
+check(p.surge === 0, 'Boost respects its cooldown');
+p = motionState();
+tick(p, { boost: true, x: 1 });
+check(p.surge === 0 && p.s > 20 && p.dash > 0, 'Boost with a direction bursts across the 2D plane');
+p = { ...motionState(), motion: 'hover', y: 200 };
+tick(p, { boost: true, y: 1 });
+check(p.surge === 0 && p.vu > 20, 'Directional boost while hovering moves on the screen plane');
+p = motionState();
+const evt = tick(p, { brake: true });
+check(evt.brake && p.braking && close(railAdvance(p, 3.4), 3.4 * BRAKE_SCALE), 'Brake slows the rail');
+for (let i = 0; i < 40; i++) tick(p, { brake: true });
+check(p.f === -240, 'Brake pulls the runner back toward the camera');
+p.surge = 10; tick(p, { brake: true });
+check(p.surge === 0, 'Brake cancels a boost surge');
+tick(p);
+check(!p.braking && railAdvance(p, 3.4) === 3.4, 'Releasing brake restores speed');
 p = { ...motionState(), motion: 'hover', y: 435 };
 for (let i = 0; i < 60; i++) tick(p, { y: 1 });
 check(p.y === 440 && p.vu === 0, 'Hover respects ceiling');
@@ -53,8 +76,8 @@ tick(p, { jump: true }, { ...space, originY: 250, floorAt: () => 300 });
 const worldHeight = p.y;
 tick(p, {}, { ...space, originY: 270, floorAt: () => 300 });
 check(close(p.y, worldHeight + 13.7) && close(p.u + 270, p.y), 'Rail rise does not lift airborne player');
-check(hitsHurdle({ f: 0, s: 0, u: 69 }, 1100, HURDLES[0]), 'Grounded runner hits low hurdle');
-check(!hitsHurdle({ f: 0, s: 0, u: 70 }, 1100, HURDLES[0]), 'Feet above hurdle clear it');
+check(hitsHurdle({ f: 0, s: 0, u: 69 }, HURDLES[0].z, HURDLES[0]), 'Grounded runner hits low hurdle');
+check(!hitsHurdle({ f: 0, s: 0, u: 70 }, HURDLES[0].z, HURDLES[0]), 'Feet above hurdle clear it');
 
 const cam = makeCamera([0, 180, 1000], 0, 0, 1000, { width: 1600, height: 900 },
   { fov: .62, far: 4500, fogStart: 3500, fog: [0, 0, 0] });
